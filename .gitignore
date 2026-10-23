@@ -1,0 +1,26 @@
+.env
+*.env
+backend/.env
+
+# NestJS / Node
+node_modules/
+dist/
+
+# Flutter
+mobile_app/build/
+mobile_app/.dart_tool/
+mobile_app/.idea/
+mobile_app/android/.gradle/
+mobile_app/android/local.properties
+
+# AI service (nếu có): file model nặng, môi trường ảo Python
+venv/
+__pycache__/
+*.faiss
+*.pt
+*.bin
+
+# Hệ điều hành
+.DS_Store
+Thumbs.db
+mobile_app/android/build/

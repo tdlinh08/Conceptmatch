@@ -1,0 +1,10 @@
+fastapi>=0.115
+uvicorn[standard]>=0.34
+python-multipart>=0.0.9
+pillow>=10.0
+transformers==4.46.3
+faiss-cpu>=1.8
+psycopg2-binary>=2.9
+# Ghim numpy < 2.0: một số bản faiss-cpu build cũ chưa tương thích ABI với numpy 2.x,
+# gây lỗi crash khó hiểu lúc runtime chứ không báo lỗi rõ ràng lúc cài đặt.
+numpy>=1.26,<2.0

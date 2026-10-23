@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>ConceptMatch - Test WebSocket Chat</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 700px; margin: 24px auto; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  input { flex: 1; padding: 8px; font-size: 14px; }
+  button { padding: 8px 16px; font-size: 14px; cursor: pointer; }
+  #log { border: 1px solid #ccc; border-radius: 6px; padding: 10px; height: 320px;
+         overflow-y: auto; background: #fafafa; font-family: monospace; font-size: 13px; }
+  .status { font-weight: bold; margin: 8px 0; }
+  .connected { color: green; }
+  .disconnected { color: red; }
+  .entry-server { color: #0066cc; }
+  .entry-sent { color: #666; }
+  .entry-error { color: red; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h2>ConceptMatch — Test WebSocket Chat</h2>
+<p>Mở trang này ở <b>2 cửa sổ trình duyệt khác nhau</b> (hoặc 1 cửa sổ thường + 1 cửa sổ ẩn danh), mỗi bên dán token của 1 tài khoản khác nhau (vd: khach@test.com và linh2@test.com) để test chat 2 chiều.</p>
+
+<div class="row">
+  <input id="serverUrl" value="http://localhost:3000" placeholder="Server URL">
+</div>
+<div class="row">
+  <input id="token" placeholder="Dán access_token vào đây">
+  <button onclick="connect()">Kết nối</button>
+</div>
+<p id="status" class="status disconnected">Chưa kết nối</p>
+
+<div class="row">
+  <input id="conversationId" placeholder="conversation_id">
+  <button onclick="joinConversation()">Join conversation</button>
+</div>
+
+<div class="row">
+  <input id="messageContent" placeholder="Nhập tin nhắn...">
+  <button onclick="sendMessage()">Gửi</button>
+</div>
+
+<div id="log"></div>
+
+<script>
+  let socket = null;
+
+  function log(text, cls) {
+    const el = document.getElementById('log');
+    const line = document.createElement('div');
+    line.className = cls || '';
+    const time = new Date().toLocaleTimeString();
+    line.textContent = `[${time}] ${text}`;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function connect() {
+    const url = document.getElementById('serverUrl').value.trim();
+    const token = document.getElementById('token').value.trim();
+    if (!token) { alert('Cần dán access_token trước'); return; }
+
+    if (socket) socket.disconnect();
+
+    socket = io(url, { query: { token }, transports: ['websocket'] });
+
+    socket.on('connect', () => {
+      document.getElementById('status').textContent = 'Đã kết nối (socket id: ' + socket.id + ')';
+      document.getElementById('status').className = 'status connected';
+      log('✅ Kết nối thành công', 'entry-server');
+    });
+
+    socket.on('disconnect', () => {
+      document.getElementById('status').textContent = 'Mất kết nối';
+      document.getElementById('status').className = 'status disconnected';
+      log('❌ Mất kết nối', 'entry-error');
+    });
+
+    socket.on('error', (data) => {
+      log('⚠️ Lỗi từ server: ' + JSON.stringify(data), 'entry-error');
+    });
+
+    socket.on('message_received', (data) => {
+      log('💬 Tin nhắn mới: ' + JSON.stringify(data), 'entry-server');
+    });
+
+    socket.on('booking_status_changed', (data) => {
+      log('🔔 Booking thay đổi trạng thái: ' + JSON.stringify(data), 'entry-server');
+    });
+  }
+
+  function joinConversation() {
+    if (!socket) { alert('Chưa kết nối'); return; }
+    const conversationId = document.getElementById('conversationId').value.trim();
+    if (!conversationId) { alert('Cần nhập conversation_id'); return; }
+    socket.emit('join_conversation', { conversation_id: conversationId });
+    log('→ Đã gửi yêu cầu join conversation: ' + conversationId, 'entry-sent');
+  }
+
+  function sendMessage() {
+    if (!socket) { alert('Chưa kết nối'); return; }
+    const conversationId = document.getElementById('conversationId').value.trim();
+    const content = document.getElementById('messageContent').value.trim();
+    if (!conversationId || !content) { alert('Cần nhập conversation_id và nội dung tin nhắn'); return; }
+    socket.emit('send_message', { conversation_id: conversationId, content });
+    log('→ Đã gửi: ' + content, 'entry-sent');
+    document.getElementById('messageContent').value = '';
+  }
+</script>
+
+</body>
+</html>

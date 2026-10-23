@@ -1,0 +1,304 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String     @id @default(uuid())
+  full_name     String     @db.VarChar(100)
+  email         String     @unique @db.VarChar(255)
+  password_hash String?    @db.VarChar(255)
+  google_id     String?    @unique @db.VarChar(100)
+  avatar_url    String?
+  // Lưu bcrypt-hash của refresh token hiện hành (không lưu token gốc).
+  // Dùng để: (1) xác thực khi refresh access token, (2) thu hồi khi logout (set về null).
+  refresh_token_hash String? @db.VarChar(255)
+  role          Role       @default(user)
+  status        UserStatus @default(active)
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
+
+  studios       Studio[]
+  bookings      Booking[]
+  reviews       Review[]
+  conversations Conversation[]
+  notifications Notification[]
+  messages      Message[]
+  audit_logs    AuditLog[]
+  view_histories ViewHistory[]
+  favorites     Favorite[]
+
+  @@map("users")
+}
+
+model Studio {
+  id           String       @id @default(uuid())
+  owner_id     String
+  name         String       @db.VarChar(150)
+  address      String
+  district     String       @db.VarChar(50)
+  description  String?
+  phone        String       @db.VarChar(20)
+  status       StudioStatus @default(pending)
+  reject_reason String?
+  avg_rating   Float        @default(0)
+  review_count Int          @default(0)
+  created_at   DateTime     @default(now())
+  updated_at   DateTime     @updatedAt
+
+  owner         User           @relation(fields: [owner_id], references: [id])
+  sets          StudioSet[]
+  images        StudioImage[]
+  pricing_rules PricingRule[]
+  bookings      Booking[]
+  reviews       Review[]
+  conversations Conversation[]
+  view_histories ViewHistory[]
+  favorites     Favorite[]
+
+  @@index([owner_id])
+  @@index([district])
+  @@index([status])
+  @@map("studios")
+}
+
+model StudioSet {
+  id             String   @id @default(uuid())
+  studio_id      String
+  name           String   @db.VarChar(100)
+  description    String?
+  style_tag      String?  @db.VarChar(50)
+  capacity       Int      @default(2)
+  avatar_url     String
+  // Vector 512 chiều từ CLIP ViT-B/32, dùng cho AI visual search (pgvector).
+  // Prisma không hỗ trợ kiểu vector gốc nên phải khai báo Unsupported.
+  // KHÔNG thể query trực tiếp field này qua Prisma Client — phải dùng $queryRaw.
+  clip_embedding Unsupported("vector(512)")?
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now())
+
+  studio   Studio    @relation(fields: [studio_id], references: [id])
+  bookings Booking[]
+
+  @@index([studio_id])
+  @@map("studio_sets")
+}
+
+model StudioImage {
+  id         String   @id @default(uuid())
+  studio_id  String
+  url        String
+  is_cover   Boolean  @default(false)
+  sort_order Int      @default(0)
+  created_at DateTime @default(now())
+
+  studio Studio @relation(fields: [studio_id], references: [id])
+
+  @@index([studio_id])
+  @@map("studio_images")
+}
+
+model PricingRule {
+  id             String   @id @default(uuid())
+  studio_id      String
+  slot_type      SlotType
+  day_type       DayType
+  price_per_hour Decimal  @db.Decimal(10, 2)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  studio Studio @relation(fields: [studio_id], references: [id])
+
+  @@unique([studio_id, slot_type, day_type])
+  @@index([studio_id])
+  @@map("pricing_rules")
+}
+
+model Booking {
+  id             String        @id @default(uuid())
+  user_id        String
+  studio_id      String
+  set_id         String
+  start_time     DateTime
+  end_time       DateTime
+  total_amount   Decimal       @db.Decimal(12, 2)
+  deposit_amount Decimal       @db.Decimal(12, 2)
+  status         BookingStatus @default(pending)
+  special_note   String?
+  cancel_reason  String?
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
+
+  user   User      @relation(fields: [user_id], references: [id])
+  studio Studio    @relation(fields: [studio_id], references: [id])
+  set    StudioSet @relation(fields: [set_id], references: [id])
+  review Review?
+
+  @@index([user_id])
+  @@index([studio_id])
+  // Index phục vụ truy vấn chống double-booking (SELECT FOR UPDATE theo set_id + khoảng thời gian)
+  @@index([set_id, start_time, end_time])
+  @@map("bookings")
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  booking_id String   @unique
+  user_id    String
+  studio_id  String
+  stars      Int
+  comment    String?
+  created_at DateTime @default(now())
+
+  booking Booking @relation(fields: [booking_id], references: [id])
+  user    User    @relation(fields: [user_id], references: [id])
+  studio  Studio  @relation(fields: [studio_id], references: [id])
+
+  @@index([studio_id])
+  @@map("reviews")
+}
+
+model Conversation {
+  id              String    @id @default(uuid())
+  user_id         String
+  studio_id       String
+  last_message_at DateTime?
+  created_at      DateTime  @default(now())
+
+  user     User      @relation(fields: [user_id], references: [id])
+  studio   Studio    @relation(fields: [studio_id], references: [id])
+  messages Message[]
+
+  @@index([user_id])
+  @@index([studio_id])
+  @@map("conversations")
+}
+
+model Message {
+  id              String   @id @default(uuid())
+  conversation_id String
+  sender_id       String
+  content         String
+  is_read         Boolean  @default(false)
+  sent_at         DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversation_id], references: [id])
+  sender       User         @relation(fields: [sender_id], references: [id])
+
+  @@index([conversation_id])
+  @@map("messages")
+}
+
+model Notification {
+  id           String           @id @default(uuid())
+  recipient_id String
+  type         NotificationType
+  title        String           @db.VarChar(150)
+  body         String
+  ref_id       String?
+  is_read      Boolean          @default(false)
+  created_at   DateTime         @default(now())
+
+  recipient User @relation(fields: [recipient_id], references: [id])
+
+  @@index([recipient_id])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  admin_id    String
+  action      String   @db.VarChar(50)
+  target_type String   @db.VarChar(50)
+  target_id   String
+  note        String?
+  created_at  DateTime @default(now())
+
+  admin User @relation(fields: [admin_id], references: [id])
+
+  @@index([admin_id])
+  @@map("audit_logs")
+}
+
+// Bổ sung so với thiết kế CSDL gốc (11 bảng) — tính năng "thêm vào yêu thích"
+// từng được nhắc tới ở báo cáo PTTKHT đầu tiên (UC03) nhưng bị rơi mất qua
+// các bản SRS/API Contract/DB Design sau, không có bảng nào lưu trạng thái
+// này. Bổ sung lại để hoàn thiện đúng ý đồ ban đầu.
+model Favorite {
+  id         String   @id @default(uuid())
+  user_id    String
+  studio_id  String
+  created_at DateTime @default(now())
+
+  user   User   @relation(fields: [user_id], references: [id])
+  studio Studio @relation(fields: [studio_id], references: [id])
+
+  @@unique([user_id, studio_id])
+  @@index([user_id])
+  @@map("favorites")
+}
+
+model ViewHistory {
+  id        String   @id @default(uuid())
+  user_id   String
+  studio_id String
+  viewed_at DateTime @default(now())
+
+  user   User   @relation(fields: [user_id], references: [id])
+  studio Studio @relation(fields: [studio_id], references: [id])
+
+  @@index([user_id, viewed_at])
+  @@index([studio_id])
+  @@map("view_history")
+}
+
+enum Role {
+  user
+  studio_owner
+  admin
+}
+
+enum UserStatus {
+  active
+  locked
+}
+
+enum StudioStatus {
+  pending
+  active
+  rejected
+}
+
+enum SlotType {
+  normal
+  golden
+}
+
+enum DayType {
+  weekday
+  weekend
+  holiday
+}
+
+enum BookingStatus {
+  pending
+  confirmed
+  checked_in
+  completed
+  cancelled   // Khách hàng tự huỷ (qua DELETE /bookings/:id)
+  rejected    // Studio Owner từ chối (qua PATCH /bookings/:id/status)
+  no_show
+}
+
+enum NotificationType {
+  booking_new
+  booking_confirmed
+  booking_rejected
+  review_new
+  studio_approved
+  studio_rejected
+}
