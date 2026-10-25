@@ -17,10 +17,71 @@ class BookingException implements Exception {
   String toString() => message;
 }
 
-/// Đặt lịch. Hiện chỉ gọi API; danh sách "Lịch hẹn của tôi" sẽ thêm vào đây
-/// ở bước My Bookings (khi đó mới cần notifyListeners).
+/// Đặt lịch, danh sách "Lịch hẹn của tôi", huỷ lịch, đánh giá.
 class BookingsProvider extends ChangeNotifier {
   final ApiClient _apiClient = ApiClient();
+
+  // ---- Lịch hẹn của tôi ----
+  List<BookingSummary> myBookings = [];
+  bool isLoadingMine = false;
+  String? mineError;
+  bool _loadedOnce = false;
+  bool get hasLoadedMine => _loadedOnce;
+
+  /// Tải toàn bộ lịch hẹn (tối đa 100 đơn gần nhất) rồi chia tab ở phía app.
+  Future<void> fetchMyBookings() async {
+    isLoadingMine = true;
+    mineError = null;
+    notifyListeners();
+    try {
+      final response = await _apiClient.dio.get('/bookings', queryParameters: {'limit': 100});
+      final data = response.data as Map<String, dynamic>;
+      myBookings = (data['data'] as List)
+          .map((e) => BookingSummary.fromJson(e as Map<String, dynamic>))
+          .toList();
+      _loadedOnce = true;
+    } on DioException catch (e) {
+      mineError = _toBookingException(e).message;
+    } finally {
+      isLoadingMine = false;
+      notifyListeners();
+    }
+  }
+
+  /// Khách huỷ đơn đang "Chờ xác nhận" (DELETE /bookings/:id).
+  Future<void> cancelBooking(String bookingId) async {
+    try {
+      await _apiClient.dio.delete('/bookings/$bookingId');
+    } on DioException catch (e) {
+      throw _toBookingException(e);
+    }
+    _updateLocal(bookingId, (b) => b.copyWith(status: 'cancelled'));
+  }
+
+  /// Gửi đánh giá cho đơn đã hoàn thành (POST /reviews).
+  Future<void> submitReview({
+    required String bookingId,
+    required int stars,
+    String? comment,
+  }) async {
+    try {
+      await _apiClient.dio.post('/reviews', data: {
+        'booking_id': bookingId,
+        'stars': stars,
+        if (comment != null && comment.trim().isNotEmpty) 'comment': comment.trim(),
+      });
+    } on DioException catch (e) {
+      throw _toBookingException(e);
+    }
+    _updateLocal(bookingId, (b) => b.copyWith(hasReview: true));
+  }
+
+  void _updateLocal(String id, BookingSummary Function(BookingSummary) change) {
+    myBookings = [for (final b in myBookings) b.id == id ? change(b) : b];
+    notifyListeners();
+  }
+
+  // ---- Đặt lịch ----
 
   /// Các khung 1 giờ còn trống của [setId] trong ngày [date].
   Future<AvailabilityResult> fetchAvailability({
@@ -61,7 +122,11 @@ class BookingsProvider extends ChangeNotifier {
           if (note != null && note.trim().isNotEmpty) 'special_note': note.trim(),
         },
       );
-      return CreatedBooking.fromJson(response.data as Map<String, dynamic>);
+      final created = CreatedBooking.fromJson(response.data as Map<String, dynamic>);
+      // Tab "Lịch hẹn" giữ trạng thái suốt phiên (IndexedStack) nên phải chủ
+      // động tải lại để đơn mới hiện ngay, không cần kéo để làm mới.
+      if (_loadedOnce) fetchMyBookings();
+      return created;
     } on DioException catch (e) {
       throw _toBookingException(e);
     }

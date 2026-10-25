@@ -103,7 +103,17 @@ export class BookingsService {
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { created_at: 'desc' },
-        include: { studio: { select: { name: true } } },
+        include: {
+          studio: {
+            select: {
+              id: true,
+              name: true,
+              images: { where: { is_cover: true }, take: 1, select: { url: true } },
+            },
+          },
+          set: { select: { name: true } },
+          review: { select: { id: true } },
+        },
       }),
       this.prisma.booking.count({ where }),
     ]);
@@ -111,11 +121,18 @@ export class BookingsService {
     return {
       data: data.map((b) => ({
         id: b.id,
+        studio_id: b.studio.id,
         studio_name: b.studio.name,
+        // Bổ sung so với API Contract: ảnh bìa + tên set để hiển thị thẻ lịch hẹn,
+        // has_review để app biết đơn đã hoàn thành nào còn được đánh giá.
+        cover_image: b.studio.images[0]?.url ?? null,
+        set_name: b.set.name,
         start_time: b.start_time,
         end_time: b.end_time,
         total_amount: b.total_amount,
+        deposit_amount: b.deposit_amount,
         status: b.status,
+        has_review: b.review !== null,
         created_at: b.created_at,
       })),
       total,
