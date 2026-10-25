@@ -13,6 +13,20 @@ class AuthProvider extends ChangeNotifier {
   String? errorMessage;
   bool isLoading = false;
 
+  AuthProvider() {
+    // ApiClient báo về đây khi refresh token cũng hết hạn (sau 7 ngày) hoặc bị
+    // thu hồi (đã đăng xuất ở nơi khác) -> đưa người dùng về màn đăng nhập.
+    _apiClient.onSessionExpired = _handleSessionExpired;
+  }
+
+  void _handleSessionExpired() {
+    if (status == AuthStatus.unauthenticated) return;
+    currentUser = null;
+    status = AuthStatus.unauthenticated;
+    errorMessage = 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.';
+    notifyListeners();
+  }
+
   /// Gọi lúc app khởi động: kiểm tra đã có token lưu sẵn chưa. Nếu có, gọi
   /// GET /auth/me để lấy lại thông tin user — vì token không tự chứa đủ
   /// thông tin hiển thị (tên, vai trò...), và app có thể đã bị đóng/mở lại
@@ -26,13 +40,22 @@ class AuthProvider extends ChangeNotifier {
     }
 
     try {
+      // Access token đã hết hạn (vd: mở lại app sau vài giờ) thì ApiClient tự
+      // dùng refresh token lấy token mới rồi gọi lại /auth/me — không bắt
+      // đăng nhập lại chừng nào refresh token (7 ngày) còn hạn.
       final response = await _apiClient.dio.get('/auth/me');
       currentUser = UserModel.fromJson(response.data as Map<String, dynamic>);
       status = AuthStatus.authenticated;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 401 || code == 403) {
+        // Cả 2 token đều không dùng được nữa -> xoá hẳn.
+        await _apiClient.clearTokens();
+      }
+      // Lỗi mạng (server chưa bật, sai IP...) thì GIỮ token, chỉ hiện màn đăng
+      // nhập; lần mở app sau server chạy lại là vào thẳng được.
+      status = AuthStatus.unauthenticated;
     } catch (_) {
-      // Token hết hạn hoặc không hợp lệ -> coi như chưa đăng nhập, xoá sạch
-      // token cũ để tránh gửi kèm token hỏng ở các request sau.
-      await _apiClient.clearTokens();
       status = AuthStatus.unauthenticated;
     }
     notifyListeners();

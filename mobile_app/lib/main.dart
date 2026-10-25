@@ -7,7 +7,7 @@ import 'providers/favorites_provider.dart';
 import 'screens/auth/auth_wrapper.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_background.dart';
-  import 'providers/bookings_provider.dart';
+import 'providers/bookings_provider.dart';
 
 void main() {
   runApp(const ConceptMatchApp());
