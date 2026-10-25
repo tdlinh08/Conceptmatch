@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
 
+/// Nền chung của toàn app: trắng ngà + 2 quầng sáng rất nhẹ
+/// (Moon Pink ở góc trên phải, Dusty Mauve ở góc dưới trái).
 class AppBackground extends StatelessWidget {
   const AppBackground({super.key});
 
@@ -11,17 +13,14 @@ class AppBackground extends StatelessWidget {
       child: Stack(
         children: [
           Positioned(
-            top: -120,
-            left: -100,
-            child: _glowCircle(AppColors.accent, 320, 0.14),
+            top: -140,
+            right: -120,
+            child: _glowCircle(AppColors.moonPink, 340, 0.55),
           ),
           Positioned(
-            top: -120, left: -100,
-            child: _glowCircle(AppColors.accent, 320, 0.13), // Moon Pink
-          ),
-          Positioned(
-            bottom: -140, right: -110,
-            child: _glowCircle(AppColors.accentGradientEnd, 360, 0.14), // Dusty Mauve
+            bottom: -160,
+            left: -130,
+            child: _glowCircle(AppColors.dustyMauve, 360, 0.12),
           ),
         ],
       ),
@@ -35,7 +34,10 @@ class AppBackground extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: RadialGradient(
-          colors: [color.withOpacity(opacity), color.withOpacity(0)],
+          colors: [
+            color.withValues(alpha: opacity),
+            color.withValues(alpha: 0),
+          ],
         ),
       ),
     );

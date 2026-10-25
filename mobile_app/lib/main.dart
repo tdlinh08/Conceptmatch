@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/studios_provider.dart';
@@ -27,11 +28,16 @@ class ConceptMatchApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         builder: (context, child) {
-          return Stack(
-            children: [
-              const AppBackground(),
-              if (child != null) child,
-            ],
+          // AnnotatedRegion: icon thanh trạng thái màu tối (vì nền app sáng),
+          // áp dụng cho MỌI màn, kể cả màn không có AppBar như Home.
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            value: AppTheme.systemOverlay,
+            child: Stack(
+              children: [
+                const AppBackground(),
+                if (child != null) child,
+              ],
+            ),
           );
         },
         home: const AuthWrapper(),
