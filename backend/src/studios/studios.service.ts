@@ -22,6 +22,24 @@ const CLOSING_HOUR = 22;
 // Trạng thái booking coi là "đang giữ chỗ", chặn slot đó không cho đặt tiếp
 const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ['pending', 'confirmed', 'checked_in'];
 
+// Các trường dùng chung cho thẻ studio (danh sách, nổi bật, gợi ý) — khai báo
+// MỘT lần để 3 API trả về cùng một dạng dữ liệu, thêm trường chỉ cần sửa ở đây.
+const STUDIO_SUMMARY_SELECT = {
+  id: true,
+  name: true,
+  district: true,
+  avg_rating: true,
+  images: { where: { is_cover: true }, take: 1, select: { url: true } },
+  // Lấy đúng 1 dòng giá rẻ nhất -> hiển thị "Từ ...đ / giờ" trên thẻ
+  pricing_rules: {
+    orderBy: { price_per_hour: 'asc' },
+    take: 1,
+    select: { price_per_hour: true },
+  },
+} satisfies Prisma.StudioSelect;
+
+type StudioSummaryRow = Prisma.StudioGetPayload<{ select: typeof STUDIO_SUMMARY_SELECT }>;
+
 @Injectable()
 export class StudiosService {
   constructor(private prisma: PrismaService) {}
@@ -55,29 +73,13 @@ export class StudiosService {
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { created_at: 'desc' },
-        select: {
-          id: true,
-          name: true,
-          district: true,
-          avg_rating: true,
-          images: {
-            where: { is_cover: true },
-            take: 1,
-            select: { url: true },
-          },
-        },
+        select: STUDIO_SUMMARY_SELECT,
       }),
       this.prisma.studio.count({ where }),
     ]);
 
     return {
-      data: data.map((s) => ({
-        id: s.id,
-        name: s.name,
-        district: s.district,
-        avg_rating: s.avg_rating,
-        cover_image: s.images[0]?.url ?? null,
-      })),
+      data: data.map((s) => this.toSummary(s)),
       total,
       page,
       limit,
@@ -289,13 +291,7 @@ export class StudiosService {
       // mục "Nổi bật" khi hệ thống còn ít dữ liệu đánh giá.
       orderBy: [{ avg_rating: 'desc' }, { created_at: 'desc' }],
       take: limit,
-      select: {
-        id: true,
-        name: true,
-        district: true,
-        avg_rating: true,
-        images: { where: { is_cover: true }, take: 1, select: { url: true } },
-      },
+      select: STUDIO_SUMMARY_SELECT,
     });
     return studios.map((s) => this.toSummary(s));
   }
@@ -373,13 +369,7 @@ export class StudiosService {
       },
       orderBy: { avg_rating: 'desc' },
       take: limit,
-      select: {
-        id: true,
-        name: true,
-        district: true,
-        avg_rating: true,
-        images: { where: { is_cover: true }, take: 1, select: { url: true } },
-      },
+      select: STUDIO_SUMMARY_SELECT,
     });
 
     // Lọc theo style_tag ra quá ít kết quả (thường gặp khi hệ thống còn ít
@@ -408,19 +398,16 @@ export class StudiosService {
 
   // ---- Helper dùng nội bộ ----
 
-  private toSummary(s: {
-    id: string;
-    name: string;
-    district: string;
-    avg_rating: number;
-    images: { url: string }[];
-  }) {
+  private toSummary(s: StudioSummaryRow) {
     return {
       id: s.id,
       name: s.name,
       district: s.district,
       avg_rating: s.avg_rating,
       cover_image: s.images[0]?.url ?? null,
+      // Giá thấp nhất trong bảng giá (Decimal -> number). Studio chưa khai báo
+      // bảng giá -> null, phía app sẽ ẩn dòng giá.
+      min_price: s.pricing_rules[0] ? Number(s.pricing_rules[0].price_per_hour) : null,
     };
   }
 

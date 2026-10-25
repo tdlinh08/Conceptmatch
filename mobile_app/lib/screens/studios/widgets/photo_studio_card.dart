@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../models/studio_model.dart';
 import '../../../providers/favorites_provider.dart';
 
@@ -43,7 +44,7 @@ class PhotoStudioCard extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  stops: [0.42, 1.0],
+                  stops: [0.35, 1.0], // bắt đầu tối sớm hơn một chút để đủ chỗ cho 3 dòng chữ
                   colors: [Color(0x00161018), Color(0xEB161018)],
                 ),
               ),
@@ -95,6 +96,28 @@ class PhotoStudioCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  // Giá thấp nhất — chỉ hiện khi studio đã khai báo bảng giá.
+                  if (studio.minPrice != null) ...[
+                    const SizedBox(height: 6),
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          const TextSpan(text: 'Từ '),
+                          TextSpan(
+                            text: Formatters.vnd(studio.minPrice!),
+                            style: const TextStyle(
+                              color: AppColors.textOnImage,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const TextSpan(text: ' / giờ'),
+                        ],
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: _textOnImageSoft, fontSize: isCompact ? 12 : 13),
+                    ),
+                  ],
                 ],
               ),
             ),
