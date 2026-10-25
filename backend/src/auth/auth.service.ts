@@ -219,6 +219,8 @@ export class AuthService {
         full_name: user.full_name,
         email: user.email,
         role: user.role,
+        avatar_url: user.avatar_url,
+        has_password: user.password_hash !== null,
       },
     };
   }

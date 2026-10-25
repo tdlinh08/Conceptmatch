@@ -116,6 +116,67 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Hồ sơ cá nhân. Các hàm trả về null nếu thành công, hoặc câu báo lỗi.
+  // ---------------------------------------------------------------------------
+
+  Future<String?> updateFullName(String fullName) async {
+    try {
+      final response = await _apiClient.dio.patch('/users/me', data: {'full_name': fullName});
+      currentUser = UserModel.fromJson(response.data as Map<String, dynamic>);
+      notifyListeners(); // lời chào ở Home, màn Cá nhân tự cập nhật tên mới
+      return null;
+    } on DioException catch (e) {
+      return _extractErrorMessage(e);
+    }
+  }
+
+  Future<String?> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      await _apiClient.dio.patch('/users/me/password', data: {
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      });
+      return null;
+    } on DioException catch (e) {
+      return _extractErrorMessage(e);
+    }
+  }
+
+  /// [filePath]: đường dẫn ảnh trên điện thoại (lấy từ image_picker).
+  Future<String?> uploadAvatar(String filePath) async {
+    try {
+      final form = FormData.fromMap({
+        'avatar': await MultipartFile.fromFile(
+          filePath,
+          // Khai báo kiểu ảnh rõ ràng: backend lọc theo mimetype (JPG/PNG/WEBP).
+          contentType: DioMediaType('image', _imageSubtype(filePath)),
+        ),
+      });
+      final response = await _apiClient.dio.post(
+        '/users/me/avatar',
+        data: form,
+        options: Options(sendTimeout: const Duration(seconds: 30)),
+      );
+      currentUser = UserModel.fromJson(response.data as Map<String, dynamic>);
+      notifyListeners();
+      return null;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 413) return 'Ảnh quá lớn (tối đa 5MB).';
+      return _extractErrorMessage(e);
+    }
+  }
+
+  static String _imageSubtype(String path) {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.png')) return 'png';
+    if (lower.endsWith('.webp')) return 'webp';
+    return 'jpeg';
+  }
+
   Future<void> logout() async {
     try {
       await _apiClient.dio.post('/auth/logout');

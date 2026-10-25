@@ -12,6 +12,7 @@ import { AiModule } from './ai/ai.module';
 import { AdminModule } from './admin/admin.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { FavoritesModule } from './favorites/favorites.module';
+import { UsersModule } from './users/users.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 
@@ -27,6 +28,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     AdminModule,
     ConversationsModule,
     FavoritesModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [

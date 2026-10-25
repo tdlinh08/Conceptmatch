@@ -1,9 +1,15 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Phục vụ file người dùng tải lên (ảnh đại diện...) tại http://<máy chủ>:3000/uploads/...
+  // Không nằm dưới /api/v1 vì setGlobalPrefix chỉ áp dụng cho route của controller.
+  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
 
   app.setGlobalPrefix('api/v1');
   app.enableCors();

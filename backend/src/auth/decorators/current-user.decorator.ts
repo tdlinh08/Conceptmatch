@@ -5,6 +5,8 @@ export interface AuthenticatedUser {
   email: string;
   role: string;
   full_name: string;
+  avatar_url: string | null;
+  has_password: boolean;
 }
 
 /**

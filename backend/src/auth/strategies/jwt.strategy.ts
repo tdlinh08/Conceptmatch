@@ -40,6 +40,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       email: user.email,
       role: user.role,
       full_name: user.full_name,
+      // Bổ sung để GET /auth/me trả đủ thông tin hồ sơ cho app.
+      avatar_url: user.avatar_url,
+      has_password: user.password_hash !== null,
     };
   }
 }
