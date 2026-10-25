@@ -48,6 +48,13 @@ export class FavoritesService {
             district: true,
             avg_rating: true,
             images: { where: { is_cover: true }, take: 1, select: { url: true } },
+            // Giá rẻ nhất -> thẻ studio ở tab "Đã lưu" hiện "Từ ...đ / giờ"
+            // giống hệt thẻ ở Home (cùng dạng dữ liệu với StudiosService.toSummary).
+            pricing_rules: {
+              orderBy: { price_per_hour: 'asc' },
+              take: 1,
+              select: { price_per_hour: true },
+            },
           },
         },
       },
@@ -59,6 +66,9 @@ export class FavoritesService {
       district: f.studio.district,
       avg_rating: f.studio.avg_rating,
       cover_image: f.studio.images[0]?.url ?? null,
+      min_price: f.studio.pricing_rules[0]
+        ? Number(f.studio.pricing_rules[0].price_per_hour)
+        : null,
     }));
   }
 }

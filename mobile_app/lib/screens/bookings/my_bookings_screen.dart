@@ -25,7 +25,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<BookingsProvider>();
-      if (!provider.hasLoadedMine) provider.fetchMyBookings();
+      provider.fetchMyBookings();
     });
   }
 

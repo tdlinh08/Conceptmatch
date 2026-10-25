@@ -28,6 +28,15 @@ class BookingsProvider extends ChangeNotifier {
   bool _loadedOnce = false;
   bool get hasLoadedMine => _loadedOnce;
 
+  /// Xoá lịch hẹn của tài khoản cũ khi đăng xuất (xem FavoritesProvider.reset).
+  void reset() {
+    myBookings = [];
+    mineError = null;
+    isLoadingMine = false;
+    _loadedOnce = false;
+    notifyListeners();
+  }
+
   /// Tải toàn bộ lịch hẹn (tối đa 100 đơn gần nhất) rồi chia tab ở phía app.
   Future<void> fetchMyBookings() async {
     isLoadingMine = true;

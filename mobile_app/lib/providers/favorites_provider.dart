@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import '../core/network/api_client.dart';
 import '../models/studio_model.dart';
@@ -12,6 +13,16 @@ class FavoritesProvider extends ChangeNotifier {
 
   bool isFavorited(String studioId) => favoriteIds.contains(studioId);
 
+  /// Xoá dữ liệu của tài khoản cũ khi đăng xuất — nếu không, người đăng nhập
+  /// sau sẽ thấy tạm danh sách đã lưu của người trước.
+  void reset() {
+    favoriteStudios = [];
+    favoriteIds = {};
+    errorMessage = null;
+    isLoading = false;
+    notifyListeners();
+  }
+
   Future<void> fetchFavorites() async {
     isLoading = true;
     errorMessage = null;
@@ -23,8 +34,12 @@ class FavoritesProvider extends ChangeNotifier {
           .map((e) => StudioModel.fromJson(e as Map<String, dynamic>))
           .toList();
       favoriteIds = favoriteStudios.map((s) => s.id).toSet();
+    } on DioException catch (e) {
+      errorMessage = e.response?.statusCode == 403
+          ? 'Chức năng lưu studio dành cho tài khoản khách hàng.'
+          : 'Không tải được danh sách đã lưu. Kéo xuống để thử lại.';
     } catch (e) {
-      errorMessage = 'Không tải được danh sách yêu thích.';
+      errorMessage = 'Không tải được danh sách đã lưu. Kéo xuống để thử lại.';
     } finally {
       isLoading = false;
       notifyListeners();
