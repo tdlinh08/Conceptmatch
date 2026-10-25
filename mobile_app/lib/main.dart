@@ -7,6 +7,7 @@ import 'providers/favorites_provider.dart';
 import 'screens/auth/auth_wrapper.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_background.dart';
+  import 'providers/bookings_provider.dart';
 
 void main() {
   runApp(const ConceptMatchApp());
@@ -22,6 +23,7 @@ class ConceptMatchApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => StudiosProvider()),
         ChangeNotifierProvider(create: (_) => FavoritesProvider()),
+        ChangeNotifierProvider(create: (_) => BookingsProvider()),
       ],
       child: MaterialApp(
         title: 'ConceptMatch',

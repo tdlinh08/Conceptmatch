@@ -8,6 +8,7 @@ import '../../providers/favorites_provider.dart';
 import '../../models/studio_detail_model.dart';
 import '../../models/review_model.dart';
 import '../../models/studio_model.dart';
+import '../bookings/booking_screen.dart';
 
 class StudioDetailScreen extends StatefulWidget {
   final String studioId;
@@ -75,9 +76,10 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
   }
 
   void _onChooseSchedule() {
-    // Màn Đặt lịch sẽ làm ở bước sau — khi đó truyền detail + _selectedSetId sang.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Màn chọn lịch sẽ có ở bước tiếp theo')),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BookingScreen(studio: _detail!, initialSetId: _selectedSetId),
+      ),
     );
   }
 
