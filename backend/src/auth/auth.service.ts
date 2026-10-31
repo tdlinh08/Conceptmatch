@@ -45,6 +45,7 @@ export class AuthService {
         full_name: dto.full_name,
         email: dto.email,
         password_hash,
+        role: dto.role ?? 'user',
       },
     });
 

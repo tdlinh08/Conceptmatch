@@ -7,5 +7,6 @@ import { AiService } from './ai.service';
   imports: [HttpModule],
   controllers: [AiController],
   providers: [AiService],
+  exports: [AiService], // Admin và Studios dùng để tạo vector cho ảnh set
 })
 export class AiModule {}

@@ -12,6 +12,9 @@ import { QueryStudiosDto } from './dto/query-studios.dto';
 import { CreateStudioSetDto } from './dto/create-studio-set.dto';
 import { AvailabilityQueryDto } from './dto/availability-query.dto';
 import { UpsertPricingRuleDto } from './dto/upsert-pricing-rule.dto';
+import { UpdateStudioSetDto } from './dto/update-studio-set.dto';
+import { AiService } from '../ai/ai.service';
+import { deleteLocalMedia } from '../media/media.util';
 
 // Khung giờ hoạt động cố định theo đúng SRS: 8h-18h (normal), 18h-22h (golden).
 // Nếu sau này cần cấu hình linh hoạt theo từng studio, tách ra thành field DB riêng.
@@ -21,6 +24,17 @@ const CLOSING_HOUR = 22;
 
 // Trạng thái booking coi là "đang giữ chỗ", chặn slot đó không cho đặt tiếp
 const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ['pending', 'confirmed', 'checked_in'];
+
+// Trường trả về cho set — KHÔNG có clip_embedding (Unsupported, Prisma không đọc được)
+const SET_SELECT = {
+  id: true,
+  name: true,
+  description: true,
+  style_tag: true,
+  capacity: true,
+  avatar_url: true,
+  is_active: true,
+} satisfies Prisma.StudioSetSelect;
 
 // Các trường dùng chung cho thẻ studio (danh sách, nổi bật, gợi ý) — khai báo
 // MỘT lần để 3 API trả về cùng một dạng dữ liệu, thêm trường chỉ cần sửa ở đây.
@@ -42,7 +56,10 @@ type StudioSummaryRow = Prisma.StudioGetPayload<{ select: typeof STUDIO_SUMMARY_
 
 @Injectable()
 export class StudiosService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private aiService: AiService,
+  ) {}
 
   async findAll(query: QueryStudiosDto) {
     const { keyword, district, style_tag, min_price, max_price, min_rating, page, limit } = query;
@@ -87,8 +104,10 @@ export class StudiosService {
   }
 
   async findOne(id: string) {
-    const studio = await this.prisma.studio.findUnique({
-      where: { id },
+    // Khách chỉ xem được studio đã duyệt. Chủ studio xem studio của mình
+    // (kể cả đang chờ duyệt / bị từ chối) qua GET /studios/mine/:id.
+    const studio = await this.prisma.studio.findFirst({
+      where: { id, status: 'active' },
       include: {
         images: { orderBy: { sort_order: 'asc' } },
         sets: { where: { is_active: true } },
@@ -114,12 +133,164 @@ export class StudiosService {
   }
 
   async update(id: string, ownerId: string, dto: UpdateStudioDto) {
-    await this.ensureOwnership(id, ownerId);
+    const studio = await this.ensureOwnership(id, ownerId);
 
     return this.prisma.studio.update({
       where: { id },
-      data: dto,
+      data: {
+        ...dto,
+        // Bị từ chối -> chủ studio sửa lại thông tin -> tự động gửi duyệt lại
+        ...(studio.status === 'rejected' && { status: 'pending', reject_reason: null }),
+      },
     });
+  }
+
+  // ===========================================================================
+  // Dành cho chủ studio (studio_owner)
+  // ===========================================================================
+
+  /** Danh sách studio của chính chủ, mọi trạng thái, kèm số liệu nhanh. */
+  async findMine(ownerId: string) {
+    const studios = await this.prisma.studio.findMany({
+      where: { owner_id: ownerId },
+      orderBy: { created_at: 'desc' },
+      select: {
+        ...STUDIO_SUMMARY_SELECT,
+        address: true,
+        status: true,
+        reject_reason: true,
+        review_count: true,
+        _count: {
+          select: {
+            sets: { where: { is_active: true } },
+            images: true,
+            bookings: { where: { status: 'pending' } },
+          },
+        },
+      },
+    });
+
+    return studios.map((s) => ({
+      ...this.toSummary(s),
+      address: s.address,
+      status: s.status,
+      reject_reason: s.reject_reason,
+      review_count: s.review_count,
+      set_count: s._count.sets,
+      image_count: s._count.images,
+      pending_booking_count: s._count.bookings,
+    }));
+  }
+
+  /** Chi tiết studio của chính chủ: gồm cả set đang ẩn, trạng thái duyệt, lý do từ chối. */
+  async findMineOne(id: string, ownerId: string) {
+    await this.ensureOwnership(id, ownerId);
+    return this.prisma.studio.findUnique({
+      where: { id },
+      include: {
+        images: { orderBy: { sort_order: 'asc' } },
+        sets: { orderBy: { created_at: 'asc' }, select: SET_SELECT },
+        pricing_rules: true,
+      },
+    });
+  }
+
+  /** Thêm nhiều ảnh studio. Studio chưa có ảnh bìa -> ảnh đầu tiên thành ảnh bìa. */
+  async addImages(studioId: string, ownerId: string, urls: string[]) {
+    await this.ensureOwnership(studioId, ownerId);
+    if (urls.length === 0) throw new BadRequestException('Chưa chọn ảnh nào');
+
+    const [hasCover, last] = await Promise.all([
+      this.prisma.studioImage.count({ where: { studio_id: studioId, is_cover: true } }),
+      this.prisma.studioImage.findFirst({
+        where: { studio_id: studioId },
+        orderBy: { sort_order: 'desc' },
+        select: { sort_order: true },
+      }),
+    ]);
+    const start = (last?.sort_order ?? -1) + 1;
+
+    await this.prisma.studioImage.createMany({
+      data: urls.map((url, i) => ({
+        studio_id: studioId,
+        url,
+        sort_order: start + i,
+        is_cover: hasCover === 0 && i === 0,
+      })),
+    });
+    return this.findImages(studioId);
+  }
+
+  async setCoverImage(studioId: string, ownerId: string, imageId: string) {
+    await this.ensureOwnership(studioId, ownerId);
+    await this.ensureImage(studioId, imageId);
+
+    await this.prisma.$transaction([
+      this.prisma.studioImage.updateMany({
+        where: { studio_id: studioId },
+        data: { is_cover: false },
+      }),
+      this.prisma.studioImage.update({ where: { id: imageId }, data: { is_cover: true } }),
+    ]);
+    return this.findImages(studioId);
+  }
+
+  async deleteImage(studioId: string, ownerId: string, imageId: string) {
+    await this.ensureOwnership(studioId, ownerId);
+    const image = await this.ensureImage(studioId, imageId);
+
+    await this.prisma.studioImage.delete({ where: { id: imageId } });
+    await deleteLocalMedia(image.url);
+
+    // Xoá đúng ảnh bìa -> lấy ảnh kế tiếp làm bìa để thẻ studio không bị trống ảnh
+    if (image.is_cover) {
+      const next = await this.prisma.studioImage.findFirst({
+        where: { studio_id: studioId },
+        orderBy: { sort_order: 'asc' },
+      });
+      if (next) {
+        await this.prisma.studioImage.update({ where: { id: next.id }, data: { is_cover: true } });
+      }
+    }
+    return this.findImages(studioId);
+  }
+
+  /** Sửa set. Đổi ảnh đại diện / ẩn-hiện set khi studio đang hoạt động -> cập nhật AI index. */
+  async updateSet(studioId: string, setId: string, ownerId: string, dto: UpdateStudioSetDto) {
+    const studio = await this.ensureOwnership(studioId, ownerId);
+    const set = await this.prisma.studioSet.findFirst({
+      where: { id: setId, studio_id: studioId },
+      select: SET_SELECT,
+    });
+    if (!set) throw new NotFoundException('Bối cảnh (set) không tồn tại trong studio này');
+
+    const avatarChanged = dto.avatar_url !== undefined && dto.avatar_url !== set.avatar_url;
+    const activeChanged = dto.is_active !== undefined && dto.is_active !== set.is_active;
+
+    const updated = await this.prisma.studioSet.update({
+      where: { id: setId },
+      data: dto,
+      select: SET_SELECT,
+    });
+
+    if (avatarChanged) {
+      await deleteLocalMedia(set.avatar_url);
+      // Ảnh đổi -> vector cũ không còn đúng; xoá đi để set không bị tìm thấy bằng ảnh cũ
+      await this.prisma.$executeRaw`
+        UPDATE studio_sets SET clip_embedding = NULL WHERE id::text = ${setId}
+      `;
+    }
+
+    let ai_warnings: string[] = [];
+    if (studio.status === 'active') {
+      if (avatarChanged || (activeChanged && updated.is_active)) {
+        ai_warnings = await this.aiService.indexSets([setId]); // encode + reindex
+      } else if (activeChanged) {
+        const warning = await this.aiService.reindex(); // set bị ẩn -> loại khỏi index
+        if (warning) ai_warnings = [warning];
+      }
+    }
+    return { ...updated, ai_warnings };
   }
 
   async findSets(studioId: string) {
@@ -127,28 +298,24 @@ export class StudiosService {
 
     return this.prisma.studioSet.findMany({
       where: { studio_id: studioId, is_active: true },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        style_tag: true,
-        capacity: true,
-        avatar_url: true,
-        // Không select clip_embedding: field Unsupported() vốn không thể
-        // truy vấn qua Prisma Client, chỉ đọc được bằng $queryRaw.
-      },
+      orderBy: { created_at: 'asc' },
+      select: SET_SELECT,
     });
   }
 
   async createSet(studioId: string, ownerId: string, dto: CreateStudioSetDto) {
-    await this.ensureOwnership(studioId, ownerId);
+    const studio = await this.ensureOwnership(studioId, ownerId);
 
-    return this.prisma.studioSet.create({
-      data: {
-        ...dto,
-        studio_id: studioId,
-      },
+    const set = await this.prisma.studioSet.create({
+      data: { ...dto, studio_id: studioId },
+      select: SET_SELECT,
     });
+
+    // Studio đang chờ duyệt: chưa encode, Admin duyệt xong sẽ encode cả studio.
+    // Studio đã hoạt động: encode ngay để set mới tìm được bằng ảnh.
+    const ai_warnings =
+      studio.status === 'active' ? await this.aiService.indexSets([set.id]) : [];
+    return { ...set, ai_warnings };
   }
 
   async findReviews(studioId: string, page = 1, limit = 10) {
@@ -409,6 +576,26 @@ export class StudiosService {
       // bảng giá -> null, phía app sẽ ẩn dòng giá.
       min_price: s.pricing_rules[0] ? Number(s.pricing_rules[0].price_per_hour) : null,
     };
+  }
+
+  /** Dùng cho controller khi chỉ cần kiểm tra quyền (vd: tải ảnh set). */
+  async assertOwner(studioId: string, ownerId: string): Promise<void> {
+    await this.ensureOwnership(studioId, ownerId);
+  }
+
+  private findImages(studioId: string) {
+    return this.prisma.studioImage.findMany({
+      where: { studio_id: studioId },
+      orderBy: { sort_order: 'asc' },
+    });
+  }
+
+  private async ensureImage(studioId: string, imageId: string) {
+    const image = await this.prisma.studioImage.findFirst({
+      where: { id: imageId, studio_id: studioId },
+    });
+    if (!image) throw new NotFoundException('Ảnh không tồn tại trong studio này');
+    return image;
   }
 
   private async ensureStudioExists(studioId: string) {

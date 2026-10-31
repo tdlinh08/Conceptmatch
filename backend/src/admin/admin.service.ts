@@ -4,11 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
-import { ConfigService } from '@nestjs/config';
-import { firstValueFrom } from 'rxjs';
-import FormData from 'form-data';
 import { PrismaService } from '../prisma/prisma.service';
+import { AiService } from '../ai/ai.service';
 import { QueryUsersDto } from './dto/query-users.dto';
 import { RejectStudioDto } from './dto/reject-studio.dto';
 import { LockUserDto } from './dto/lock-user.dto';
@@ -34,8 +31,7 @@ function startOfMonth(): Date {
 export class AdminService {
   constructor(
     private prisma: PrismaService,
-    private http: HttpService,
-    private config: ConfigService,
+    private aiService: AiService,
   ) {}
 
   async findPendingStudios(page = 1, limit = 10) {
@@ -98,7 +94,7 @@ export class AdminService {
 
     // Sau khi duyệt: tự động mã hoá ảnh của từng Studio Set thành CLIP embedding
     // và nạp vào FAISS index — đúng theo luồng UC-04 trong SRS.
-    const warnings = await this.encodeAndIndexSets(studioId);
+    const warnings = await this.aiService.indexStudio(studioId);
 
     return {
       id: studioId,
@@ -279,70 +275,5 @@ export class AdminService {
       revenue_this_month: Number(revenueAgg._sum.total_amount ?? 0),
       top_studios,
     };
-  }
-
-  // ---- Helper: tự động encode ảnh + nạp FAISS index ----
-
-  private async encodeAndIndexSets(studioId: string): Promise<string[]> {
-    const warnings: string[] = [];
-    const sets = await this.prisma.studioSet.findMany({
-      where: { studio_id: studioId, is_active: true },
-    });
-
-    const aiServiceUrl =
-      this.config.get<string>('AI_SERVICE_URL') ?? 'http://localhost:8000';
-
-    for (const set of sets) {
-      try {
-        // Tải ảnh từ avatar_url (URL do Owner cung cấp) về dạng bytes
-        const imageResponse = await firstValueFrom(
-          this.http.get(set.avatar_url, {
-            responseType: 'arraybuffer',
-            timeout: 10000,
-          }),
-        );
-        const imageBuffer = Buffer.from(imageResponse.data);
-
-        const form = new FormData();
-        form.append('image', imageBuffer, { filename: 'avatar.jpg' });
-
-        const encodeResponse = await firstValueFrom(
-          this.http.post(`${aiServiceUrl}/encode`, form, {
-            headers: form.getHeaders(),
-            timeout: 15000,
-          }),
-        );
-
-        const embedding: number[] = encodeResponse.data.embedding;
-        const vectorLiteral = `[${embedding.join(',')}]`;
-
-        // $executeRaw bắt buộc vì clip_embedding là Unsupported("vector(512)")
-        // trong schema.prisma — Prisma Client không hỗ trợ update field này
-        // qua cú pháp update() thông thường.
-        await this.prisma.$executeRaw`
-          UPDATE studio_sets
-          SET clip_embedding = ${vectorLiteral}::vector
-          WHERE id::text = ${set.id}
-        `;
-      } catch (err) {
-        // Lỗi 1 ảnh (vd: avatar_url không phải ảnh thật, link chết...) không
-        // được làm hỏng toàn bộ quá trình duyệt studio — chỉ ghi nhận cảnh báo.
-        warnings.push(
-          `Không thể encode ảnh cho set "${set.name}" (${set.id}): ${
-            err instanceof Error ? err.message : 'lỗi không xác định'
-          }`,
-        );
-      }
-    }
-
-    try {
-      await firstValueFrom(this.http.post(`${aiServiceUrl}/reindex`, {}));
-    } catch {
-      warnings.push(
-        'Không thể gọi /reindex ngay — FAISS index sẽ tự cập nhật ở lần khởi động AI Service tiếp theo',
-      );
-    }
-
-    return warnings;
   }
 }

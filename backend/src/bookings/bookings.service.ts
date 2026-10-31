@@ -5,11 +5,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { BookingStatus, DayType, SlotType } from '@prisma/client';
+import { BookingStatus, DayType, Prisma, SlotType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../conversations/chat.gateway';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { QueryBookingsDto } from './dto/query-bookings.dto';
+import { QueryStudioBookingsDto } from './dto/query-studio-bookings.dto';
 import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
 
 const OPENING_HOUR = 8;
@@ -133,6 +134,57 @@ export class BookingsService {
         deposit_amount: b.deposit_amount,
         status: b.status,
         has_review: b.review !== null,
+        created_at: b.created_at,
+      })),
+      total,
+    };
+  }
+
+  /**
+   * Lịch đặt của các studio thuộc chủ studio đang đăng nhập (bổ sung so với API
+   * Contract — cần cho màn "Quản lý lịch đặt" của chủ studio).
+   * Lịch còn hiệu lực (pending/confirmed/checked_in) xếp theo giờ chụp gần nhất trước;
+   * các trạng thái đã kết thúc xếp mới nhất trước.
+   */
+  async findAllForOwner(ownerId: string, query: QueryStudioBookingsDto) {
+    const { status, studio_id, page, limit } = query;
+    const where: Prisma.BookingWhereInput = {
+      studio: { owner_id: ownerId },
+      ...(studio_id && { studio_id }),
+      ...(status && { status }),
+    };
+    const upcomingFirst = status !== undefined && ACTIVE_BOOKING_STATUSES.includes(status);
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.booking.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { start_time: upcomingFirst ? 'asc' : 'desc' },
+        include: {
+          studio: { select: { id: true, name: true } },
+          set: { select: { id: true, name: true } },
+          user: { select: { id: true, full_name: true, email: true, avatar_url: true } },
+        },
+      }),
+      this.prisma.booking.count({ where }),
+    ]);
+
+    return {
+      data: data.map((b) => ({
+        id: b.id,
+        studio_id: b.studio.id,
+        studio_name: b.studio.name,
+        set_id: b.set.id,
+        set_name: b.set.name,
+        customer: b.user,
+        start_time: b.start_time,
+        end_time: b.end_time,
+        total_amount: b.total_amount,
+        deposit_amount: b.deposit_amount,
+        status: b.status,
+        special_note: b.special_note,
+        cancel_reason: b.cancel_reason,
         created_at: b.created_at,
       })),
       total,
