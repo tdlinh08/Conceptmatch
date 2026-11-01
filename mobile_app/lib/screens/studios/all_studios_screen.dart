@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/formatters.dart';
 import '../../providers/studios_provider.dart';
-import 'widgets/studio_card.dart';
 import 'studio_detail_screen.dart';
+import 'widgets/photo_studio_card.dart';
 
+/// Màn "Tất cả studio" — dùng chung cho "Xem tất cả" và bấm 1 concept ở Home
+/// (vd Vintage -> mở sẵn bộ lọc Vintage). Tìm theo tên, lọc concept, quận, giá, đánh giá.
 class AllStudiosScreen extends StatefulWidget {
   final String? initialStyleTag;
   final String? initialKeyword;
@@ -15,193 +20,670 @@ class AllStudiosScreen extends StatefulWidget {
   State<AllStudiosScreen> createState() => _AllStudiosScreenState();
 }
 
+/// Quận (tên cũ, quen thuộc với người dùng) — khớp cột district khi nhập dữ liệu.
+const _districts = [
+  'Ba Đình', 'Hoàn Kiếm', 'Đống Đa', 'Hai Bà Trưng', 'Cầu Giấy', 'Tây Hồ', 'Thanh Xuân',
+  'Hoàng Mai', 'Long Biên', 'Nam Từ Liêm', 'Bắc Từ Liêm', 'Hà Đông',
+];
+
+/// Mức giá tối đa của gói (VNĐ).
+const _priceCaps = [300000, 500000, 1000000];
+
 class _AllStudiosScreenState extends State<AllStudiosScreen> {
   late final TextEditingController _searchController;
   final _scrollController = ScrollController();
-  String? _selectedStyleTag;
+  Timer? _searchDebounce;
+  bool _started = false; // đã áp dụng bộ lọc ban đầu chưa
+
+  StudiosProvider get _provider => context.read<StudiosProvider>();
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController(text: widget.initialKeyword ?? '');
-    _selectedStyleTag = widget.initialStyleTag;
+    _scrollController.addListener(_onScroll);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final provider = context.read<StudiosProvider>();
-      provider.fetchStudios(
-        keyword: widget.initialKeyword,
+      setState(() => _started = true);
+      _provider.applyFilter(StudioFilter(
+        keyword: widget.initialKeyword?.trim() ?? '',
         styleTag: widget.initialStyleTag,
-      );
-      if (provider.styleTags.isEmpty) {
-        provider.fetchStyleTags();
-      }
-    });
-
-    _scrollController.addListener(() {
-      final provider = context.read<StudiosProvider>();
-      if (_scrollController.position.pixels >=
-              _scrollController.position.maxScrollExtent - 200 &&
-          provider.hasMore &&
-          !provider.isLoading) {
-        provider.loadMore();
-      }
+      ));
+      if (_provider.styleTags.isEmpty) _provider.fetchStyleTags();
     });
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _applyFilters() {
-    context.read<StudiosProvider>().fetchStudios(
-          keyword: _searchController.text.trim(),
-          styleTag: _selectedStyleTag,
-        );
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 300) {
+      _provider.loadMore();
+    }
   }
+
+  void _apply(StudioFilter filter) {
+    _provider.applyFilter(filter);
+    if (_scrollController.hasClients) _scrollController.jumpTo(0);
+  }
+
+  /// Tự tìm sau khi người dùng ngừng gõ 400ms (không cần bấm Enter).
+  void _onSearchChanged(String text) {
+    setState(() {}); // cập nhật nút xoá chữ
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      final keyword = text.trim();
+      if (keyword != _provider.filter.keyword) {
+        _apply(_provider.filter.copyWith(keyword: keyword));
+      }
+    });
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    _onSearchChanged('');
+  }
+
+  void _clearAll() {
+    _searchController.clear();
+    setState(() {});
+    _apply(const StudioFilter());
+  }
+
+  Future<void> _openFilterSheet() async {
+    final result = await showModalBottomSheet<StudioFilter>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (_) => _FilterSheet(initial: _provider.filter),
+    );
+    if (result != null) _apply(result);
+  }
+
+  void _openStudio(String id) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => StudioDetailScreen(studioId: id)),
+    );
+  }
+
+  // ===========================================================================
+  // BUILD
+  // ===========================================================================
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<StudiosProvider>();
+    final filter = provider.filter;
+    // Tiêu đề theo concept ĐANG CHỌN (chọn từ Home hay từ hàng chip trong màn đều được).
+    // Khung hình đầu tiên bộ lọc chưa kịp áp dụng -> tạm dùng concept truyền vào.
+    final tag = _started ? filter.styleTag : widget.initialStyleTag;
+    final title = tag == null ? 'Tất cả studio' : 'Concept ${_capitalize(tag)}';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Tất cả Studio')),
+      appBar: AppBar(title: Text(title)),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Tìm theo tên studio...',
-                prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, color: AppColors.textSecondary),
-                        onPressed: () {
-                          _searchController.clear();
-                          _applyFilters();
-                          setState(() {});
-                        },
-                      )
-                    : null,
-              ),
-              onChanged: (_) => setState(() {}),
-              onSubmitted: (_) => _applyFilters(),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    textInputAction: TextInputAction.search,
+                    onChanged: _onSearchChanged,
+                    onSubmitted: _onSearchChanged,
+                    decoration: InputDecoration(
+                      hintText: 'Tìm theo tên studio…',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      suffixIcon: _searchController.text.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Xoá',
+                              icon: const Icon(Icons.close_rounded),
+                              onPressed: _clearSearch,
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _FilterButton(count: filter.sheetCount, onTap: _openFilterSheet),
+              ],
             ),
           ),
-          if (provider.styleTags.isNotEmpty) _buildStyleTagFilter(provider),
+          _buildStyleChips(provider.styleTags, filter),
+          _buildResultBar(provider, filter),
           Expanded(child: _buildBody(provider)),
         ],
       ),
     );
   }
 
-  Widget _buildStyleTagFilter(StudiosProvider provider) {
+  Widget _buildStyleChips(List<String> tags, StudioFilter filter) {
+    if (tags.isEmpty) return const SizedBox(height: 4);
+    final items = <String?>[null, ...tags];
     return SizedBox(
       height: 44,
-      child: ListView(
+      child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final tag = items[i];
+          return Center(
+            child: _Pill(
+              label: tag == null ? 'Tất cả' : _capitalize(tag),
+              selected: filter.styleTag == tag,
+              onTap: () {
+                if (filter.styleTag != tag) _apply(filter.copyWith(styleTag: () => tag));
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// "12 studio" + các bộ lọc đang bật (bấm x để bỏ từng cái).
+  Widget _buildResultBar(StudiosProvider provider, StudioFilter filter) {
+    final chips = <Widget>[
+      if (filter.district != null)
+        _ActiveChip(
+          label: filter.district!,
+          onRemove: () => _apply(filter.copyWith(district: () => null)),
+        ),
+      if (filter.maxPrice != null)
+        _ActiveChip(
+          label: 'Gói dưới ${Formatters.vnd(filter.maxPrice!)}',
+          onRemove: () => _apply(filter.copyWith(maxPrice: () => null)),
+        ),
+      if (filter.minRating != null)
+        _ActiveChip(
+          label: 'Từ ${filter.minRating!.toStringAsFixed(0)}★',
+          onRemove: () => _apply(filter.copyWith(minRating: () => null)),
+        ),
+    ];
+    final countText = provider.isLoading && provider.studios.isEmpty
+        ? 'Đang tìm…'
+        : '${provider.totalCount} studio';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
+      child: Row(
         children: [
-          _filterChip('Tất cả', _selectedStyleTag == null, () {
-            setState(() => _selectedStyleTag = null);
-            _applyFilters();
-          }),
-          ...provider.styleTags.map(
-            (tag) => _filterChip(tag, _selectedStyleTag == tag, () {
-              setState(() => _selectedStyleTag = tag);
-              _applyFilters();
-            }),
+          Text(countText, style: const TextStyle(fontSize: 13, color: AppColors.textFaint)),
+          if (chips.isNotEmpty) ...[
+            const SizedBox(width: 10),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final c in chips) Padding(padding: const EdgeInsets.only(right: 6), child: c),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody(StudiosProvider provider) {
+    final studios = provider.studios;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
+    if (provider.isLoading && studios.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (provider.errorMessage != null && studios.isEmpty) {
+      return _EmptyState(
+        icon: Icons.wifi_off_rounded,
+        title: 'Không tải được',
+        text: provider.errorMessage!,
+        actionLabel: 'Thử lại',
+        onAction: () => _apply(provider.filter),
+      );
+    }
+    if (studios.isEmpty) {
+      return _EmptyState(
+        icon: Icons.search_off_rounded,
+        title: 'Không tìm thấy studio phù hợp',
+        text: 'Thử từ khoá khác, chọn concept khác hoặc nới bộ lọc nhé.',
+        actionLabel: provider.filter.isEmpty ? null : 'Xoá bộ lọc',
+        onAction: provider.filter.isEmpty ? null : _clearAll,
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => provider.applyFilter(provider.filter),
+      child: CustomScrollView(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+            sliver: SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 14,
+                crossAxisSpacing: 14,
+                childAspectRatio: 0.78, // giống tab Đã lưu
+              ),
+              itemCount: studios.length,
+              itemBuilder: (context, index) {
+                final studio = studios[index];
+                return LayoutBuilder(
+                  builder: (context, constraints) => PhotoStudioCard(
+                    studio: studio,
+                    width: constraints.maxWidth,
+                    height: constraints.maxHeight,
+                    onTap: () => _openStudio(studio.id),
+                  ),
+                );
+              },
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, bottomInset + 24),
+              child: provider.hasMore
+                  ? const Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2.4),
+                      ),
+                    )
+                  : Text(
+                      'Đã hiện tất cả ${provider.totalCount} studio',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
+                    ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _filterChip(String label, bool selected, VoidCallback onTap) {
-    final displayLabel =
-        label.isEmpty ? label : '${label[0].toUpperCase()}${label.substring(1)}';
-    return Padding(
-      padding: const EdgeInsets.only(right: 8, bottom: 8),
-      child: ChoiceChip(
-        label: Text(displayLabel),
-        selected: selected,
-        onSelected: (_) => onTap(),
-        selectedColor: AppColors.accent,
-        backgroundColor: AppColors.surfaceVariant,
-        showCheckmark: false,
-        labelStyle: TextStyle(
-          color: selected ? Colors.white : AppColors.textPrimary,
-          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-          fontSize: 13,
+  static String _capitalize(String s) => s.isEmpty ? s : '${s[0].toUpperCase()}${s.substring(1)}';
+}
+
+// =============================================================================
+// Bảng bộ lọc
+// =============================================================================
+
+class _FilterSheet extends StatefulWidget {
+  final StudioFilter initial;
+
+  const _FilterSheet({required this.initial});
+
+  @override
+  State<_FilterSheet> createState() => _FilterSheetState();
+}
+
+class _FilterSheetState extends State<_FilterSheet> {
+  late String? _district = widget.initial.district;
+  late int? _maxPrice = widget.initial.maxPrice;
+  late double? _minRating = widget.initial.minRating;
+
+  void _reset() => setState(() {
+        _district = null;
+        _maxPrice = null;
+        _minRating = null;
+      });
+
+  void _done() {
+    Navigator.of(context).pop(widget.initial.copyWith(
+      district: () => _district,
+      maxPrice: () => _maxPrice,
+      minRating: () => _minRating,
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.85),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 12),
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.outlineStrong,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 12, 4),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Bộ lọc',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.4,
+                        color: AppColors.textTitle,
+                      ),
+                    ),
+                  ),
+                  TextButton(onPressed: _reset, child: const Text('Đặt lại')),
+                ],
+              ),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const _SheetLabel('KHU VỰC'),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _Pill(
+                          label: 'Mọi quận',
+                          selected: _district == null,
+                          onTap: () => setState(() => _district = null),
+                        ),
+                        for (final d in _districts)
+                          _Pill(
+                            label: d,
+                            selected: _district == d,
+                            onTap: () => setState(() => _district = d),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 22),
+                    const _SheetLabel('GIÁ GÓI THUÊ'),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _Pill(
+                          label: 'Mọi mức giá',
+                          selected: _maxPrice == null,
+                          onTap: () => setState(() => _maxPrice = null),
+                        ),
+                        for (final p in _priceCaps)
+                          _Pill(
+                            label: 'Dưới ${Formatters.vnd(p)}',
+                            selected: _maxPrice == p,
+                            onTap: () => setState(() => _maxPrice = p),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 22),
+                    const _SheetLabel('ĐÁNH GIÁ'),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _Pill(
+                          label: 'Tất cả',
+                          selected: _minRating == null,
+                          onTap: () => setState(() => _minRating = null),
+                        ),
+                        for (final r in const [4.0, 4.5])
+                          _Pill(
+                            label: 'Từ ${r.toStringAsFixed(r % 1 == 0 ? 0 : 1).replaceAll('.', ',')}★',
+                            selected: _minRating == r,
+                            onTap: () => setState(() => _minRating = r),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+              child: FilledButton(onPressed: _done, child: const Text('Xem kết quả')),
+            ),
+          ],
         ),
-        side: BorderSide.none,
       ),
     );
   }
+}
 
-  Widget _buildBody(StudiosProvider provider) {
-    if (provider.isLoading && provider.studios.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
+// =============================================================================
+// Widget con
+// =============================================================================
 
-    if (provider.errorMessage != null && provider.studios.isEmpty) {
-      return Center(
+class _FilterButton extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+
+  const _FilterButton({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final active = count > 0;
+    return Semantics(
+      button: true,
+      label: active ? 'Bộ lọc, đang bật $count' : 'Bộ lọc',
+      excludeSemantics: true,
+      child: Material(
+        color: active ? AppColors.primary : AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: active ? BorderSide.none : const BorderSide(color: AppColors.outline),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: SizedBox(
+            width: 52,
+            height: 52,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(
+                  Icons.tune_rounded,
+                  color: active ? AppColors.onPrimary : AppColors.textTitle,
+                ),
+                if (active)
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Container(
+                      width: 16,
+                      height: 16,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        color: AppColors.moonPink,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '$count',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textTitle,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _Pill({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected ? AppColors.primary : AppColors.surface,
+        shape: StadiumBorder(
+          side: selected ? BorderSide.none : const BorderSide(color: AppColors.outlineStrong),
+        ),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                color: selected ? AppColors.onPrimary : AppColors.textBody,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Bộ lọc đang bật, bấm x để bỏ.
+class _ActiveChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onRemove;
+
+  const _ActiveChip({required this.label, required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfacePink,
+      shape: const StadiumBorder(),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onRemove,
         child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
+          padding: const EdgeInsets.fromLTRB(12, 5, 8, 5),
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.wifi_off, color: AppColors.textSecondary, size: 48),
-              const SizedBox(height: 12),
               Text(
-                provider.errorMessage!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.textSecondary),
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.accentText,
+                ),
               ),
-              const SizedBox(height: 16),
-              FilledButton(onPressed: _applyFilters, child: const Text('Thử lại')),
+              const SizedBox(width: 4),
+              const Icon(Icons.close_rounded, size: 14, color: AppColors.accentText),
             ],
           ),
         ),
-      );
-    }
+      ),
+    );
+  }
+}
 
-    if (provider.studios.isEmpty) {
-      return const Center(
-        child: Text(
-          'Không tìm thấy studio nào phù hợp',
-          style: TextStyle(color: AppColors.textSecondary),
+class _SheetLabel extends StatelessWidget {
+  final String text;
+  const _SheetLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 1.2,
+        color: AppColors.textFaint,
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String text;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.text,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(36, 24, 36, 80),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: const BoxDecoration(color: AppColors.surfacePink, shape: BoxShape.circle),
+              child: Icon(icon, size: 32, color: AppColors.accentText),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textTitle,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, height: 1.5, color: AppColors.textBody),
+            ),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 16),
+              OutlinedButton(onPressed: onAction, child: Text(actionLabel!)),
+            ],
+          ],
         ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: () async => _applyFilters(),
-      child: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.all(16),
-        itemCount: provider.studios.length + (provider.hasMore ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (index >= provider.studios.length) {
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          final studio = provider.studios[index];
-          return StudioCard(
-            studio: studio,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => StudioDetailScreen(studioId: studio.id)),
-              );
-            },
-          );
-        },
       ),
     );
   }

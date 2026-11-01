@@ -17,6 +17,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  String? _selectedTag; // concept đang xem nhanh trên Home (null = "Tất cả")
+
   @override
   void initState() {
     super.initState();
@@ -29,7 +31,17 @@ class _HomeScreenState extends State<HomeScreen> {
       provider.fetchFeatured(),
       provider.fetchStyleTags(),
       provider.fetchForYou(),
+      // Kéo để làm mới: tải lại cả concept đang xem
+      if (_selectedTag != null) provider.fetchConceptPreview(_selectedTag!, force: true),
     ]);
+  }
+
+  /// Bấm chip concept: xem nhanh ngay trên Home; bấm lại chip đang chọn hoặc "Tất cả" để ẩn.
+  void _onSelectTag(String? tag) {
+    setState(() => _selectedTag = tag == _selectedTag ? null : tag);
+    if (_selectedTag != null) {
+      context.read<StudiosProvider>().fetchConceptPreview(_selectedTag!);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -89,6 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildSearchRow(),
               _buildAiCard(),
               _buildStyleChips(studiosProvider.styleTags),
+              if (_selectedTag != null) ..._buildConceptPreview(studiosProvider, _selectedTag!),
               _sectionHeader('Nổi bật', onSeeAll: () => _goToAllStudios()),
               _buildStudioCarousel(
                 studios: studiosProvider.featuredStudios,
@@ -298,7 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ---- 4. Chip phong cách (bấm để mở danh sách đã lọc theo phong cách) ----
+  // ---- 4. Chip concept: bấm để xem nhanh vài studio ngay bên dưới ----
   Widget _buildStyleChips(List<String> styleTags) {
     if (styleTags.isEmpty) return const SizedBox.shrink();
 
@@ -313,18 +326,104 @@ class _HomeScreenState extends State<HomeScreen> {
           separatorBuilder: (_, _) => const SizedBox(width: 8),
           itemBuilder: (context, index) {
             if (index == 0) {
-              return _StyleChip(label: 'Tất cả', selected: true, onTap: () => _goToAllStudios());
+              return _StyleChip(
+                label: 'Tất cả',
+                selected: _selectedTag == null,
+                onTap: () => _onSelectTag(null),
+              );
             }
             final tag = styleTags[index - 1];
             return _StyleChip(
               label: _capitalize(tag),
-              selected: false,
-              onTap: () => _goToAllStudios(styleTag: tag),
+              selected: _selectedTag == tag,
+              onTap: () => _onSelectTag(tag),
             );
           },
         ),
       ),
     );
+  }
+
+  /// Mục "Concept Retro": tối đa 6 studio cuộn ngang + "Xem thêm" mở danh sách đầy đủ.
+  List<Widget> _buildConceptPreview(StudiosProvider provider, String tag) {
+    final studios = provider.conceptPreviews[tag] ?? const <StudioModel>[];
+    final total = provider.conceptTotals[tag] ?? 0;
+    final loading = provider.isLoadingConcept(tag) && studios.isEmpty;
+    final hasMore = total > studios.length;
+    void openAll() => _goToAllStudios(styleTag: tag);
+
+    const cardWidth = 200.0;
+    const cardHeight = 220.0;
+
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 24, 8, 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    const TextSpan(text: 'Concept '),
+                    TextSpan(
+                      text: _capitalize(tag),
+                      style: const TextStyle(color: AppColors.accentText),
+                    ),
+                  ],
+                ),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.4,
+                  color: AppColors.textTitle,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: openAll,
+              child: Text(total > 0 ? 'Xem thêm ($total)' : 'Xem thêm'),
+            ),
+          ],
+        ),
+      ),
+      if (loading)
+        const _SkeletonRow(cardWidth: cardWidth, cardHeight: cardHeight)
+      else if (studios.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 20),
+          child: Text(
+            'Chưa có studio nào thuộc concept này.',
+            style: TextStyle(color: AppColors.textBody, fontSize: 14),
+          ),
+        )
+      else
+        SizedBox(
+          height: cardHeight,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: studios.length + (hasMore ? 1 : 0),
+            separatorBuilder: (_, _) => const SizedBox(width: 14),
+            itemBuilder: (context, index) {
+              if (index == studios.length) {
+                return _SeeMoreCard(
+                  label: 'Xem thêm\n${total - studios.length} studio',
+                  width: 120,
+                  height: cardHeight,
+                  onTap: openAll,
+                );
+              }
+              final studio = studios[index];
+              return PhotoStudioCard(
+                studio: studio,
+                width: cardWidth,
+                height: cardHeight,
+                onTap: () => _goToStudioDetail(studio.id),
+              );
+            },
+          ),
+        ),
+    ];
   }
 
   static String _capitalize(String s) =>
@@ -452,6 +551,62 @@ class _StyleChip extends StatelessWidget {
                 color: selected ? AppColors.onPrimary : AppColors.textBody,
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Thẻ cuối dải concept: mở danh sách đầy đủ của concept đó.
+class _SeeMoreCard extends StatelessWidget {
+  final String label;
+  final double width;
+  final double height;
+  final VoidCallback onTap;
+
+  const _SeeMoreCard({
+    required this.label,
+    required this.width,
+    required this.height,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Material(
+        color: AppColors.surfacePink,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(color: AppColors.dustyMauve.withValues(alpha: 0.28)),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: onTap,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: const BoxDecoration(color: AppColors.surface, shape: BoxShape.circle),
+                child: const Icon(Icons.arrow_forward_rounded, color: AppColors.accentText),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textTitle,
+                ),
+              ),
+            ],
           ),
         ),
       ),

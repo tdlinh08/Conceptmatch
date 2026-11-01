@@ -4,39 +4,87 @@ import '../models/studio_model.dart';
 import '../models/studio_detail_model.dart';
 import '../models/review_model.dart';
 
+/// Bộ lọc của màn "Tất cả studio" (khớp query của GET /studios).
+class StudioFilter {
+  final String keyword;
+  final String? styleTag;
+  final String? district;
+  final int? maxPrice; // lọc theo gói: có ít nhất 1 gói giá <= maxPrice
+  final double? minRating;
+
+  const StudioFilter({
+    this.keyword = '',
+    this.styleTag,
+    this.district,
+    this.maxPrice,
+    this.minRating,
+  });
+
+  /// Số bộ lọc trong bảng "Bộ lọc" đang bật (không tính từ khoá và concept).
+  int get sheetCount => [district, maxPrice, minRating].where((v) => v != null).length;
+
+  bool get isEmpty => keyword.isEmpty && styleTag == null && sheetCount == 0;
+
+  StudioFilter copyWith({
+    String? keyword,
+    String? Function()? styleTag, // truyền hàm để đặt được giá trị null
+    String? Function()? district,
+    int? Function()? maxPrice,
+    double? Function()? minRating,
+  }) {
+    return StudioFilter(
+      keyword: keyword ?? this.keyword,
+      styleTag: styleTag != null ? styleTag() : this.styleTag,
+      district: district != null ? district() : this.district,
+      maxPrice: maxPrice != null ? maxPrice() : this.maxPrice,
+      minRating: minRating != null ? minRating() : this.minRating,
+    );
+  }
+
+  Map<String, dynamic> toQuery() => {
+        if (keyword.isNotEmpty) 'keyword': keyword,
+        if (styleTag != null) 'style_tag': styleTag,
+        if (district != null) 'district': district,
+        if (maxPrice != null) 'max_price': maxPrice,
+        if (minRating != null) 'min_rating': minRating,
+      };
+}
+
 class StudiosProvider extends ChangeNotifier {
   final ApiClient _apiClient = ApiClient();
 
-  // ---- Danh sách đầy đủ (dùng cho màn "Tất cả Studio") ----
+  // ---- Danh sách đầy đủ (màn "Tất cả studio", có lọc + tải thêm khi cuộn) ----
+  static const int _pageSize = 10;
+
   List<StudioModel> studios = [];
   bool isLoading = false;
   String? errorMessage;
+  StudioFilter filter = const StudioFilter();
+  int totalCount = 0;
 
   int _page = 1;
-  int _totalCount = 0;
   bool _hasMore = true;
-  String _keyword = '';
-  String? _styleTag;
+  int _requestId = 0; // đổi bộ lọc khi đang tải -> bỏ kết quả của lần gọi cũ
 
   bool get hasMore => _hasMore;
 
-  /// [reset] = true: tìm kiếm/lọc mới (xoá danh sách cũ).
-  /// [reset] = false: tải thêm trang tiếp theo (cuộn tới đâu tải tới đó).
-  Future<void> fetchStudios({
-    String? keyword,
-    String? styleTag,
-    bool reset = true,
-  }) async {
-    if (reset) {
-      _page = 1;
-      studios = [];
-      _hasMore = true;
-      _keyword = keyword ?? '';
-      _styleTag = styleTag;
-    }
+  /// Lọc mới (xoá danh sách cũ). Luôn chạy, kể cả khi lần tải trước chưa xong.
+  Future<void> applyFilter(StudioFilter newFilter) async {
+    filter = newFilter;
+    _page = 1;
+    _hasMore = true;
+    studios = [];
+    totalCount = 0;
+    await _fetchPage(++_requestId);
+  }
 
+  /// Tải trang tiếp theo khi cuộn gần cuối.
+  Future<void> loadMore() async {
     if (!_hasMore || isLoading) return;
+    await _fetchPage(_requestId);
+  }
 
+  Future<void> _fetchPage(int requestId) async {
     isLoading = true;
     errorMessage = null;
     notifyListeners();
@@ -44,34 +92,28 @@ class StudiosProvider extends ChangeNotifier {
     try {
       final response = await _apiClient.dio.get(
         '/studios',
-        queryParameters: {
-          if (_keyword.isNotEmpty) 'keyword': _keyword,
-          if (_styleTag != null) 'style_tag': _styleTag,
-          'page': _page,
-          'limit': 10,
-        },
+        queryParameters: {...filter.toQuery(), 'page': _page, 'limit': _pageSize},
       );
+      if (requestId != _requestId) return; // đã có bộ lọc mới hơn
 
       final data = response.data as Map<String, dynamic>;
-      final items = data['data'] as List<dynamic>;
-      _totalCount = data['total'] as int;
-
-      final newStudios = items
+      final items = (data['data'] as List)
           .map((e) => StudioModel.fromJson(e as Map<String, dynamic>))
           .toList();
-
-      studios = [...studios, ...newStudios];
-      _hasMore = studios.length < _totalCount;
+      totalCount = data['total'] as int;
+      studios = [...studios, ...items];
+      _hasMore = studios.length < totalCount;
       _page++;
     } catch (e) {
+      if (requestId != _requestId) return;
       errorMessage = 'Không tải được danh sách studio. Kiểm tra lại kết nối.';
     } finally {
-      isLoading = false;
-      notifyListeners();
+      if (requestId == _requestId) {
+        isLoading = false;
+        notifyListeners();
+      }
     }
   }
-
-  Future<void> loadMore() => fetchStudios(reset: false);
 
   // ---- Dữ liệu cho màn Home (nổi bật / danh mục / gợi ý cá nhân hoá) ----
 
@@ -82,6 +124,37 @@ class StudiosProvider extends ChangeNotifier {
   bool isLoadingFeatured = false;
   bool isLoadingForYou = false;
   bool isLoadingStyleTags = false;
+
+  // Xem nhanh 1 concept ngay trên Home (bấm chip Vintage / Retro…), lưu theo concept
+  // để bấm qua lại giữa các chip không phải tải lại.
+  final Map<String, List<StudioModel>> conceptPreviews = {};
+  final Map<String, int> conceptTotals = {};
+  final Set<String> _loadingConcepts = {};
+
+  bool isLoadingConcept(String tag) => _loadingConcepts.contains(tag);
+
+  Future<void> fetchConceptPreview(String tag, {int limit = 6, bool force = false}) async {
+    if (_loadingConcepts.contains(tag)) return;
+    if (!force && conceptPreviews.containsKey(tag)) return;
+    _loadingConcepts.add(tag);
+    notifyListeners();
+    try {
+      final response = await _apiClient.dio.get(
+        '/studios',
+        queryParameters: {'style_tag': tag, 'page': 1, 'limit': limit},
+      );
+      final data = response.data as Map<String, dynamic>;
+      conceptPreviews[tag] = (data['data'] as List)
+          .map((e) => StudioModel.fromJson(e as Map<String, dynamic>))
+          .toList();
+      conceptTotals[tag] = data['total'] as int;
+    } catch (e) {
+      // Mục phụ trên Home: lỗi thì để trống, người dùng vẫn bấm "Xem thêm" được.
+    } finally {
+      _loadingConcepts.remove(tag);
+      notifyListeners();
+    }
+  }
 
   Future<void> fetchFeatured({int limit = 10}) async {
     isLoadingFeatured = true;
