@@ -15,13 +15,18 @@ import { CreatePackageDto } from './dto/create-package.dto';
 import { UpdatePackageDto } from './dto/update-package.dto';
 import { STUDIO_SUMMARY_SELECT, toStudioSummary } from './studio-summary';
 import {
+  addonLine,
   listStartTimes,
   PricingError,
   quotePrice,
   SLOT_STEP_MINUTES,
   toHHmm,
   toMinutes,
+  withAddons,
 } from '../pricing/pricing';
+import { CreateStaffDto, UpdateStaffDto } from './dto/staff.dto';
+import { CreateAddonDto, UpdateAddonDto } from './dto/addon.dto';
+import { activeStaffCount, resolveAddons, roleBusyRanges } from './staff-rules';
 import { UpdateStudioSetDto } from './dto/update-studio-set.dto';
 import { AiService } from '../ai/ai.service';
 import { deleteLocalMedia } from '../media/media.util';
@@ -62,6 +67,28 @@ const toPackage = (p: PackageRow) => ({
   price: Number(p.price),
   extra_person_fee: Number(p.extra_person_fee),
 });
+
+const STAFF_SELECT = {
+  id: true,
+  full_name: true,
+  role: true,
+  phone: true,
+  avatar_url: true,
+  is_active: true,
+} satisfies Prisma.StaffMemberSelect;
+
+const ADDON_SELECT = {
+  id: true,
+  role: true,
+  name: true,
+  description: true,
+  price: true,
+  unit: true,
+  is_active: true,
+} satisfies Prisma.AddonServiceSelect;
+
+type AddonRow = Prisma.AddonServiceGetPayload<{ select: typeof ADDON_SELECT }>;
+const toAddon = (a: AddonRow) => ({ ...a, price: Number(a.price) });
 
 // Set kèm gói đang bán (dành cho khách)
 const PUBLIC_SET_SELECT = {
@@ -162,7 +189,26 @@ export class StudiosService {
       throw new NotFoundException('Studio không tồn tại');
     }
 
-    return { ...studio, sets: studio.sets.map(toSetWithPackages) };
+    // Số thợ đang làm theo vai trò; dịch vụ của vai trò chưa có ai thì ẩn với khách
+    const counts = await this.prisma.staffMember.groupBy({
+      by: ['role'],
+      where: { studio_id: id, is_active: true },
+      _count: { _all: true },
+    });
+    const staff_counts = { photographer: 0, makeup: 0 };
+    counts.forEach((c) => (staff_counts[c.role] = c._count._all));
+    const addons = await this.prisma.addonService.findMany({
+      where: { studio_id: id, is_active: true },
+      orderBy: [{ role: 'asc' }, { price: 'asc' }],
+      select: ADDON_SELECT,
+    });
+
+    return {
+      ...studio,
+      sets: studio.sets.map(toSetWithPackages),
+      staff_counts,
+      addons: addons.filter((a) => staff_counts[a.role] > 0).map(toAddon),
+    };
   }
 
   async create(ownerId: string, dto: CreateStudioDto) {
@@ -235,9 +281,15 @@ export class StudiosService {
       include: {
         images: { orderBy: { sort_order: 'asc' } },
         sets: { orderBy: { created_at: 'asc' }, select: OWNER_SET_SELECT },
+        staff: { orderBy: [{ role: 'asc' }, { full_name: 'asc' }], select: STAFF_SELECT },
+        addons: { orderBy: [{ role: 'asc' }, { created_at: 'asc' }], select: ADDON_SELECT },
       },
     });
-    return { ...studio, sets: studio.sets.map(toSetWithPackages) };
+    return {
+      ...studio,
+      sets: studio.sets.map(toSetWithPackages),
+      addons: studio.addons.map(toAddon),
+    };
   }
 
   /** Thêm nhiều ảnh studio. Studio chưa có ảnh bìa -> ảnh đầu tiên thành ảnh bìa. */
@@ -413,6 +465,20 @@ export class StudiosService {
     const dayEnd = new Date(date);
     dayEnd.setDate(dayEnd.getDate() + 1);
     const numPeople = query.num_people ?? Math.min(pkg.included_people, pkg.max_people);
+    const addons = await resolveAddons(this.prisma, studioId, query.addon_ids?.split(','));
+
+    // Mỗi vai trò khách chọn: số người đang làm + các đơn trong ngày đang dùng vai trò đó
+    const roles = await Promise.all(
+      addons.map(async (a) => ({
+        role: a.role,
+        capacity: await activeStaffCount(this.prisma, studioId, a.role),
+        busy: await roleBusyRanges(this.prisma, studioId, a.role, date, dayEnd),
+      })),
+    );
+    const noStaff = roles.find((r) => r.capacity === 0);
+    if (noStaff) {
+      throw new BadRequestException('Studio hiện chưa có người cho dịch vụ đã chọn');
+    }
 
     // Booking đang giữ chỗ của SET này trong ngày (mọi gói của set dùng chung một lịch)
     const busy = await this.prisma.booking.findMany({
@@ -432,7 +498,15 @@ export class StudiosService {
         closeTime: studio.close_time,
         durationMinutes: pkg.duration_minutes,
         busy: busy.map((b) => ({ start: b.start_time, end: b.end_time })),
+        roles,
       });
+
+      // Tiền dịch vụ không phụ thuộc giờ bắt đầu -> tính 1 lần
+      const addonsAmount = addons.reduce(
+        (sum, a) =>
+          sum + addonLine({ price: Number(a.price), unit: a.unit }, pkg.duration_minutes, numPeople).amount,
+        0,
+      );
 
       const pricing = { ...toPackage(pkg) };
       const hhmm = (d: Date) => toHHmm(d.getHours() * 60 + d.getMinutes());
@@ -443,15 +517,17 @@ export class StudiosService {
         package_id: pkg.id,
         duration_minutes: pkg.duration_minutes,
         num_people: numPeople,
+        addon_ids: addons.map((a) => a.id),
+        addons_amount: addonsAmount,
         open_time: studio.open_time,
         close_time: studio.close_time,
         step_minutes: SLOT_STEP_MINUTES,
         available_slots: starts.map(({ start, end }) => {
-          const q = quotePrice(pricing, studio, numPeople, start);
+          const q = withAddons(quotePrice(pricing, studio, numPeople, start), addonsAmount);
           return {
             start: hhmm(start),
             end: hhmm(end),
-            price: q.total_amount,
+            price: q.total_amount, // đã gồm người thêm + phụ thu + dịch vụ thêm
             surcharge_pct: q.surcharge_pct,
           };
         }),
@@ -503,6 +579,71 @@ export class StudiosService {
       select: PACKAGE_SELECT,
     });
     return toPackage(pkg);
+  }
+
+  // ===========================================================================
+  // Nhân sự (thợ ảnh / trang điểm) + dịch vụ thêm
+  // ===========================================================================
+
+  async findStaff(studioId: string, ownerId: string) {
+    await this.ensureOwnership(studioId, ownerId);
+    return this.prisma.staffMember.findMany({
+      where: { studio_id: studioId },
+      orderBy: [{ role: 'asc' }, { full_name: 'asc' }],
+      select: STAFF_SELECT,
+    });
+  }
+
+  async createStaff(studioId: string, ownerId: string, dto: CreateStaffDto) {
+    await this.ensureOwnership(studioId, ownerId);
+    return this.prisma.staffMember.create({
+      data: { ...dto, studio_id: studioId },
+      select: STAFF_SELECT,
+    });
+  }
+
+  async updateStaff(studioId: string, staffId: string, ownerId: string, dto: UpdateStaffDto) {
+    await this.ensureOwnership(studioId, ownerId);
+    const staff = await this.prisma.staffMember.findFirst({
+      where: { id: staffId, studio_id: studioId },
+    });
+    if (!staff) throw new NotFoundException('Nhân sự không tồn tại trong studio này');
+    if (dto.role && dto.role !== staff.role) {
+      // Đổi vai trò làm lệch các phân công đang có -> bắt tạo nhân sự mới
+      const assigned = await this.prisma.bookingAddon.count({ where: { staff_id: staffId } });
+      if (assigned > 0) {
+        throw new BadRequestException('Nhân sự đã được phân công đơn, không đổi vai trò được');
+      }
+    }
+    return this.prisma.staffMember.update({
+      where: { id: staffId },
+      data: dto,
+      select: STAFF_SELECT,
+    });
+  }
+
+  async createAddon(studioId: string, ownerId: string, dto: CreateAddonDto) {
+    await this.ensureOwnership(studioId, ownerId);
+    const addon = await this.prisma.addonService.create({
+      data: { ...dto, studio_id: studioId },
+      select: ADDON_SELECT,
+    });
+    return toAddon(addon);
+  }
+
+  async updateAddon(studioId: string, addonId: string, ownerId: string, dto: UpdateAddonDto) {
+    await this.ensureOwnership(studioId, ownerId);
+    const exists = await this.prisma.addonService.count({
+      where: { id: addonId, studio_id: studioId },
+    });
+    if (!exists) throw new NotFoundException('Dịch vụ không tồn tại trong studio này');
+    // Đơn đã đặt giữ tên + giá cũ (snapshot ở booking_addons) nên sửa thoải mái
+    const addon = await this.prisma.addonService.update({
+      where: { id: addonId },
+      data: dto,
+      select: ADDON_SELECT,
+    });
+    return toAddon(addon);
   }
 
   async findFeatured(limit = 10) {

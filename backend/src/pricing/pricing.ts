@@ -11,6 +11,10 @@
  *   tiền phụ thu         = làm tròn đến 1.000đ (giá gói theo số người * % phụ thu / 100)
  *   tổng                 = giá gói theo số người + tiền phụ thu
  *   tiền cọc             = làm tròn đến 1.000đ (tổng * 30%)
+ *
+ * Dịch vụ thêm (thợ ảnh / trang điểm) — xem addonLine(): cộng SAU phụ thu,
+ * tức phụ thu giờ tối / cuối tuần chỉ áp cho tiền thuê phòng:
+ *   tổng có dịch vụ = tổng thuê phòng + Σ tiền dịch vụ;  cọc = 30% tổng có dịch vụ
  */
 
 export const SLOT_STEP_MINUTES = 30; // giờ bắt đầu cách nhau 30 phút
@@ -106,6 +110,68 @@ export interface BusyRange {
   end: Date;
 }
 
+// ---------------------------------------------------------------------------
+// Dịch vụ thêm
+// ---------------------------------------------------------------------------
+
+export type AddonUnitType = 'per_booking' | 'per_hour' | 'per_person';
+
+/** Số lượng tính tiền của 1 dịch vụ: 1 lượt / số giờ của gói / số người. */
+export function addonQuantity(
+  unit: AddonUnitType,
+  durationMinutes: number,
+  numPeople: number,
+): number {
+  switch (unit) {
+    case 'per_hour':
+      return Math.round((durationMinutes / 60) * 100) / 100;
+    case 'per_person':
+      return numPeople;
+    default:
+      return 1;
+  }
+}
+
+export function addonLine(
+  addon: { price: number; unit: AddonUnitType },
+  durationMinutes: number,
+  numPeople: number,
+): { quantity: number; amount: number } {
+  const quantity = addonQuantity(addon.unit, durationMinutes, numPeople);
+  return { quantity, amount: roundMoney(addon.price * quantity) };
+}
+
+/** Cộng tiền dịch vụ vào báo giá thuê phòng, tính lại tiền cọc trên tổng mới. */
+export function withAddons(
+  quote: PriceQuote,
+  addonsAmount: number,
+): PriceQuote & { addons_amount: number } {
+  const total_amount = quote.total_amount + addonsAmount;
+  return {
+    ...quote,
+    addons_amount: addonsAmount,
+    total_amount,
+    deposit_amount: roundMoney(total_amount * DEPOSIT_RATIO),
+  };
+}
+
+/**
+ * Còn đủ người của một vai trò cho khung [start, end) không.
+ * Quy tắc (an toàn, không bao giờ xếp trùng): số đơn ĐANG GIỮ CHỖ cần vai trò này
+ * mà chồng lên khung phải < số người đang làm. Khi đó luôn còn ít nhất 1 người
+ * rảnh trọn khung giờ (mỗi đơn chồng chiếm tối đa 1 người), nên lúc chủ studio
+ * xác nhận đơn chắc chắn tìm được người để phân công.
+ */
+export function hasFreeStaff(
+  start: Date,
+  end: Date,
+  capacity: number,
+  busy: BusyRange[],
+): boolean {
+  const overlapping = busy.filter((b) => b.start < end && b.end > start).length;
+  return overlapping < capacity;
+}
+
 /**
  * Các giờ bắt đầu hợp lệ trong một ngày cho gói dài `durationMinutes`:
  * nằm trong giờ mở cửa, đúng lưới 30 phút, kết thúc trước giờ đóng cửa,
@@ -117,6 +183,8 @@ export function listStartTimes(params: {
   closeTime: string;
   durationMinutes: number;
   busy: BusyRange[];
+  // Mỗi vai trò khách đã chọn (thợ ảnh, trang điểm): số người + các đơn đang dùng vai trò đó
+  roles?: { capacity: number; busy: BusyRange[] }[];
   now?: Date;
 }): { start: Date; end: Date }[] {
   const open = toMinutes(params.openTime);
@@ -136,7 +204,11 @@ export function listStartTimes(params: {
     const end = new Date(start.getTime() + params.durationMinutes * 60_000);
     if (start <= now) continue;
     const overlaps = params.busy.some((b) => b.start < end && b.end > start);
-    if (!overlaps) result.push({ start, end });
+    if (overlaps) continue;
+    const staffOk = (params.roles ?? []).every((r) =>
+      hasFreeStaff(start, end, r.capacity, r.busy),
+    );
+    if (staffOk) result.push({ start, end });
   }
   return result;
 }

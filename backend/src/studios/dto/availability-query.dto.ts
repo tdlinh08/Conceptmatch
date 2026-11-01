@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsDateString,
+  Matches,
   IsInt,
   IsOptional,
   IsUUID,
@@ -23,4 +24,11 @@ export class AvailabilityQueryDto {
   @Min(1)
   @Max(100)
   num_people?: number;
+
+  // Dịch vụ thêm khách đang tick, dạng "id1,id2" -> chỉ trả giờ còn thợ rảnh, giá đã cộng dịch vụ
+  @IsOptional()
+  @Matches(/^[0-9a-f-]{36}(,[0-9a-f-]{36}){0,1}$/i, {
+    message: 'addon_ids là tối đa 2 mã dịch vụ, cách nhau bằng dấu phẩy',
+  })
+  addon_ids?: string;
 }

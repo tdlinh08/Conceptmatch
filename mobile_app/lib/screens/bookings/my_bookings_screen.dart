@@ -296,8 +296,7 @@ class _BookingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final b = booking;
-    final hours = b.endTime.difference(b.startTime).inMinutes / 60;
-    final hoursText = hours == hours.roundToDouble() ? '${hours.round()} giờ' : '$hours giờ';
+    final hoursText = Formatters.duration(b.endTime.difference(b.startTime).inMinutes);
 
     return Material(
       color: AppColors.surface,
@@ -344,11 +343,20 @@ class _BookingCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          b.setName,
+                          b.detailLine, // "Set Retro · Gói 2 tiếng · 3 người"
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 13, color: AppColors.textBody),
                         ),
+                        if (b.addons.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            b.staffLine, // "Thợ ảnh: An · Trang điểm: chờ phân công"
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12, color: AppColors.accentText),
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         _IconLine(icon: Icons.calendar_today_outlined, text: _dateLabel(b.startTime)),
                         const SizedBox(height: 4),

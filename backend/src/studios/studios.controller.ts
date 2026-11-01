@@ -23,6 +23,8 @@ import { CreateStudioSetDto } from './dto/create-studio-set.dto';
 import { AvailabilityQueryDto } from './dto/availability-query.dto';
 import { CreatePackageDto } from './dto/create-package.dto';
 import { UpdatePackageDto } from './dto/update-package.dto';
+import { CreateStaffDto, UpdateStaffDto } from './dto/staff.dto';
+import { CreateAddonDto, UpdateAddonDto } from './dto/addon.dto';
 import { UpdateStudioSetDto } from './dto/update-studio-set.dto';
 import { deleteLocalMedia, imageUploadOptions, publicUrl } from '../media/media.util';
 import { Public } from '../auth/decorators/public.decorator';
@@ -247,5 +249,56 @@ export class StudiosController {
     @Body() dto: UpdatePackageDto,
   ) {
     return this.studiosService.updatePackage(id, setId, packageId, ownerId, dto);
+  }
+
+  // --- Nhân sự (thợ ảnh / trang điểm) + dịch vụ thêm. Khách xem dịch vụ đang bán
+  // và số thợ qua GET /studios/:id (addons, staff_counts) — không lộ tên/SĐT nhân sự.
+
+  @Roles('studio_owner')
+  @Get(':id/staff')
+  findStaff(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') ownerId: string) {
+    return this.studiosService.findStaff(id, ownerId);
+  }
+
+  @Roles('studio_owner')
+  @Post(':id/staff')
+  createStaff(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') ownerId: string,
+    @Body() dto: CreateStaffDto,
+  ) {
+    return this.studiosService.createStaff(id, ownerId, dto);
+  }
+
+  @Roles('studio_owner')
+  @Put(':id/staff/:staffId')
+  updateStaff(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('staffId', ParseUUIDPipe) staffId: string,
+    @CurrentUser('id') ownerId: string,
+    @Body() dto: UpdateStaffDto,
+  ) {
+    return this.studiosService.updateStaff(id, staffId, ownerId, dto);
+  }
+
+  @Roles('studio_owner')
+  @Post(':id/addons')
+  createAddon(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') ownerId: string,
+    @Body() dto: CreateAddonDto,
+  ) {
+    return this.studiosService.createAddon(id, ownerId, dto);
+  }
+
+  @Roles('studio_owner')
+  @Put(':id/addons/:addonId')
+  updateAddon(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('addonId', ParseUUIDPipe) addonId: string,
+    @CurrentUser('id') ownerId: string,
+    @Body() dto: UpdateAddonDto,
+  ) {
+    return this.studiosService.updateAddon(id, addonId, ownerId, dto);
   }
 }

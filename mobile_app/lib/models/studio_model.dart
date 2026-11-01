@@ -1,13 +1,16 @@
+import '../core/constants/api_constants.dart';
+
 class StudioModel {
   final String id;
   final String name;
   final String district;
   final double avgRating;
-  final String? coverImage;
+  final String? coverImage; // đã ghép thành địa chỉ đầy đủ (xem ApiConstants.mediaUrl)
 
-  /// Giá thuê thấp nhất (VNĐ/giờ) trong bảng giá của studio.
-  /// null khi studio chưa khai báo bảng giá -> thẻ ẩn dòng giá.
+  /// Giá của gói thuê RẺ NHẤT đang bán (VNĐ) và thời lượng của gói đó.
+  /// null khi studio chưa có gói nào -> thẻ ẩn dòng giá.
   final double? minPrice;
+  final int? minPriceMinutes;
 
   StudioModel({
     required this.id,
@@ -16,6 +19,7 @@ class StudioModel {
     required this.avgRating,
     this.coverImage,
     this.minPrice,
+    this.minPriceMinutes,
   });
 
   factory StudioModel.fromJson(Map<String, dynamic> json) {
@@ -24,8 +28,9 @@ class StudioModel {
       name: json['name'] as String,
       district: json['district'] as String,
       avgRating: (json['avg_rating'] as num).toDouble(),
-      coverImage: json['cover_image'] as String?,
+      coverImage: ApiConstants.mediaUrl(json['cover_image'] as String?),
       minPrice: (json['min_price'] as num?)?.toDouble(),
+      minPriceMinutes: json['min_price_minutes'] as int?,
     );
   }
 }

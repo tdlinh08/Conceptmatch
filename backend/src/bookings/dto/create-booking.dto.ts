@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDateString,
   IsInt,
   IsOptional,
@@ -38,4 +40,14 @@ export class CreateBookingDto {
   @IsString()
   @MaxLength(500)
   special_note?: string;
+
+  // Dịch vụ thêm (thợ ảnh / trang điểm), tối đa 1 dịch vụ mỗi vai trò
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(2)
+  @IsUUID('all', {
+    each: true,
+    message: 'addon_ids chứa mã dịch vụ không hợp lệ',
+  })
+  addon_ids?: string[];
 }

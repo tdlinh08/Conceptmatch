@@ -9,18 +9,12 @@ class BookingSuccessScreen extends StatelessWidget {
   final CreatedBooking booking;
   final String studioName;
   final String setName;
-  final DateTime date;
-  final int startHour;
-  final int endHour;
 
   const BookingSuccessScreen({
     super.key,
     required this.booking,
     required this.studioName,
     required this.setName,
-    required this.date,
-    required this.startHour,
-    required this.endHour,
   });
 
   static String _two(int n) => n.toString().padLeft(2, '0');
@@ -28,9 +22,15 @@ class BookingSuccessScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const weekdays = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật'];
+    // Giờ lấy từ đơn backend trả về (giờ kết thúc = giờ bắt đầu + thời lượng gói)
+    final start = booking.startTime;
+    final end = booking.endTime;
     final dateText =
-        '${weekdays[date.weekday - 1]}, ${_two(date.day)}/${_two(date.month)}/${date.year}';
-    final timeText = '${_two(startHour)}:00 – ${_two(endHour)}:00 (${endHour - startHour} giờ)';
+        '${weekdays[start.weekday - 1]}, ${_two(start.day)}/${_two(start.month)}/${start.year}';
+    final timeText = '${_two(start.hour)}:${_two(start.minute)} – ${_two(end.hour)}:${_two(end.minute)}'
+        ' (${Formatters.duration(end.difference(start).inMinutes)})';
+    final extra = booking.extraPeopleAmount ?? 0;
+    final surcharge = booking.surchargeAmount ?? 0;
 
     return Scaffold(
       body: SafeArea(
@@ -106,17 +106,37 @@ class BookingSuccessScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 14),
                   _Row(label: 'Bối cảnh', value: setName),
+                  if (booking.packageName != null) _Row(label: 'Gói', value: booking.packageName!),
+                  _Row(label: 'Số người', value: '${booking.numPeople} người'),
                   _Row(label: 'Ngày', value: dateText),
                   _Row(label: 'Giờ', value: timeText),
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 10),
                     child: Divider(height: 1, color: AppColors.outline),
                   ),
+                  // Chi tiết giá chỉ hiện khi có phụ thu / dịch vụ, để khách thấy vì sao giá khác giá gói
+                  if (booking.baseAmount != null &&
+                      (extra > 0 || surcharge > 0 || booking.addons.isNotEmpty)) ...[
+                    _Row(label: 'Giá gói', value: Formatters.vnd(booking.baseAmount!)),
+                    if (extra > 0) _Row(label: 'Người thêm', value: '+${Formatters.vnd(extra)}'),
+                    if (surcharge > 0)
+                      _Row(label: 'Phụ thu giờ', value: '+${Formatters.vnd(surcharge)}'),
+                    for (final a in booking.addons)
+                      _Row(label: a.name, value: '+${Formatters.vnd(a.amount)}'),
+                  ],
                   _Row(label: 'Tổng tiền', value: Formatters.vnd(booking.totalAmount), strong: true),
                   _Row(label: 'Tiền cọc (30%)', value: Formatters.vnd(booking.depositAmount)),
                 ],
               ),
             ),
+            if (booking.addons.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              const Text(
+                'Studio sẽ phân công thợ cụ thể khi xác nhận đơn. Bạn xem tên thợ trong mục Lịch hẹn.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, height: 1.5, color: AppColors.textBody),
+              ),
+            ],
             const SizedBox(height: 28),
             FilledButton(
               onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),

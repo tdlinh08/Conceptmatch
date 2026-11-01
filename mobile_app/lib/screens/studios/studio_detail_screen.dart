@@ -70,17 +70,33 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
       _isLoading = false;
       _hasError = detail == null;
       if (detail != null && detail.sets.isNotEmpty) {
-        _selectedSetId ??= detail.sets.first.id;
+        // Ưu tiên set đã có gói thuê (đặt được ngay)
+        _selectedSetId ??= detail.sets
+            .firstWhere((s) => s.isBookable, orElse: () => detail.sets.first)
+            .id;
       }
     });
   }
 
-  void _onChooseSchedule() {
+  /// Mở màn Đặt lịch; bấm từ một gói cụ thể thì gói đó được chọn sẵn.
+  void _onChooseSchedule({String? packageId}) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => BookingScreen(studio: _detail!, initialSetId: _selectedSetId),
+        builder: (_) => BookingScreen(
+          studio: _detail!,
+          initialSetId: _selectedSetId,
+          initialPackageId: packageId,
+        ),
       ),
     );
+  }
+
+  StudioSetModel? get _selectedSet {
+    final sets = _detail?.sets ?? const <StudioSetModel>[];
+    for (final s in sets) {
+      if (s.id == _selectedSetId) return s;
+    }
+    return null;
   }
 
   // ===========================================================================
@@ -396,11 +412,46 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
             ),
           ],
 
-          if (detail.pricingRules.isNotEmpty) ...[
+          if (_selectedSet != null) ...[
             const SizedBox(height: 28),
-            const _SectionTitle('Bảng giá'),
+            _SectionTitle('Gói thuê', trailing: _selectedSet!.name),
             const SizedBox(height: 12),
-            _PricingTable(rules: detail.pricingRules),
+            if (_selectedSet!.packages.isEmpty)
+              const Text(
+                'Bối cảnh này chưa mở nhận đặt lịch. Bạn chọn bối cảnh khác ở trên nhé.',
+                style: TextStyle(fontSize: 14, height: 1.5, color: AppColors.textBody),
+              )
+            else
+              for (final pkg in _selectedSet!.packages)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _PackageCard(
+                    package: pkg,
+                    onTap: () => _onChooseSchedule(packageId: pkg.id),
+                  ),
+                ),
+            const SizedBox(height: 4),
+            _OpeningInfo(detail: detail),
+          ],
+
+          if (detail.addons.isNotEmpty) ...[
+            const SizedBox(height: 28),
+            const _SectionTitle('Dịch vụ thêm'),
+            const SizedBox(height: 4),
+            Text(
+              [
+                if (detail.photographerCount > 0) '${detail.photographerCount} thợ ảnh',
+                if (detail.makeupCount > 0) '${detail.makeupCount} thợ trang điểm',
+              ].join(' · '),
+              style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
+            ),
+            const SizedBox(height: 10),
+            for (final addon in detail.addons) _AddonRow(addon: addon),
+            const SizedBox(height: 4),
+            const Text(
+              'Chọn khi đặt lịch. Chỉ hiện giờ còn thợ rảnh.',
+              style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+            ),
           ],
 
           const SizedBox(height: 28),
@@ -443,9 +494,8 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
 
   // ---- 3. Thanh dưới cố định: giá từ + nút Chọn lịch ----
   Widget _buildBottomBar(StudioDetailModel detail) {
-    final minPrice = detail.pricingRules.isEmpty
-        ? null
-        : detail.pricingRules.map((r) => r.pricePerHour).reduce((a, b) => a < b ? a : b);
+    final cheapest = detail.cheapestPackage;
+    final canBook = detail.sets.any((s) => s.isBookable);
 
     return Container(
       decoration: BoxDecoration(
@@ -459,9 +509,9 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
           child: Row(
             children: [
               Expanded(
-                child: minPrice == null
+                child: cheapest == null
                     ? const Text(
-                        'Liên hệ studio để biết giá',
+                        'Studio chưa mở nhận đặt lịch',
                         style: TextStyle(fontSize: 14, color: AppColors.textBody),
                       )
                     : Column(
@@ -477,7 +527,7 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
                             TextSpan(
                               children: [
                                 TextSpan(
-                                  text: Formatters.vnd(minPrice),
+                                  text: Formatters.vnd(cheapest.price),
                                   style: const TextStyle(
                                     fontSize: 21,
                                     fontWeight: FontWeight.w700,
@@ -485,7 +535,7 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
                                     color: AppColors.textTitle,
                                   ),
                                 ),
-                                const TextSpan(text: ' / giờ'),
+                                TextSpan(text: ' / ${Formatters.duration(cheapest.durationMinutes)}'),
                               ],
                             ),
                             style: const TextStyle(fontSize: 14, color: AppColors.textBody),
@@ -495,7 +545,7 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
               ),
               const SizedBox(width: 12),
               FilledButton(
-                onPressed: detail.sets.isEmpty ? null : _onChooseSchedule,
+                onPressed: canBook ? () => _onChooseSchedule() : null,
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -515,7 +565,7 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
   // ---- Tiện ích ----
 
   StudioModel _toSummary(StudioDetailModel detail) {
-    final prices = detail.pricingRules.map((r) => r.pricePerHour);
+    final cheapest = detail.cheapestPackage;
     return StudioModel(
       id: detail.id,
       name: detail.name,
@@ -524,7 +574,8 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
       coverImage: detail.images.isEmpty
           ? null
           : detail.images.firstWhere((i) => i.isCover, orElse: () => detail.images.first).url,
-      minPrice: prices.isEmpty ? null : prices.reduce((a, b) => a < b ? a : b),
+      minPrice: cheapest?.price,
+      minPriceMinutes: cheapest?.durationMinutes,
     );
   }
 
@@ -732,7 +783,7 @@ class _SetCard extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: '${set.name}, tối đa ${set.capacity} người',
+      label: '${set.name}, ${_subtitle()}',
       excludeSemantics: true,
       child: GestureDetector(
         onTap: onTap,
@@ -778,7 +829,9 @@ class _SetCard extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                'Tối đa ${set.capacity} người',
+                _subtitle(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
               ),
             ],
@@ -787,6 +840,11 @@ class _SetCard extends StatelessWidget {
       ),
     );
   }
+
+  /// "Từ 300.000đ · 3 người" — gói rẻ nhất của set (backend đã sắp theo giá).
+  String _subtitle() => set.packages.isEmpty
+      ? 'Chưa nhận đặt lịch'
+      : 'Từ ${Formatters.vnd(set.packages.first.price)} · ${set.capacity} người';
 }
 
 class _SetPlaceholder extends StatelessWidget {
@@ -809,71 +867,127 @@ class _SetPlaceholder extends StatelessWidget {
   }
 }
 
-/// Bảng giá dạng thẻ: mỗi dòng một khung giờ x loại ngày, giờ vàng tô vàng đậm.
-class _PricingTable extends StatelessWidget {
-  final List<PricingRuleModel> rules;
+/// Thẻ một gói thuê; bấm vào để sang màn Đặt lịch với gói này được chọn sẵn.
+class _PackageCard extends StatelessWidget {
+  final RentalPackageModel package;
+  final VoidCallback onTap;
 
-  const _PricingTable({required this.rules});
-
-  static const _slotOrder = {'normal': 0, 'golden': 1};
-  static const _dayOrder = {'weekday': 0, 'weekend': 1, 'holiday': 2};
+  const _PackageCard({required this.package, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final sorted = [...rules]..sort((a, b) {
-        final bySlot = (_slotOrder[a.slotType] ?? 9).compareTo(_slotOrder[b.slotType] ?? 9);
-        if (bySlot != 0) return bySlot;
-        return (_dayOrder[a.dayType] ?? 9).compareTo(_dayOrder[b.dayType] ?? 9);
-      });
+    final p = package;
+    final peopleText = p.extraPersonFee > 0
+        ? 'Gồm ${p.includedPeople} người · +${Formatters.vnd(p.extraPersonFee)}/người thêm · tối đa ${p.maxPeople}'
+        : 'Tối đa ${p.maxPeople} người';
 
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
+    return Material(
+      color: AppColors.surface,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.outline),
+        side: const BorderSide(color: AppColors.outline),
       ),
-      child: Column(
-        children: [
-          for (var i = 0; i < sorted.length; i++) ...[
-            if (i > 0) const Divider(height: 1, thickness: 1, color: AppColors.outline),
-            _PriceRow(rule: sorted[i]),
-          ],
-        ],
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      p.name,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textTitle,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      Formatters.duration(p.durationMinutes),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.accentText,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      peopleText,
+                      style: const TextStyle(fontSize: 12, height: 1.4, color: AppColors.textBody),
+                    ),
+                    if (p.description != null && p.description!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        p.description!.trim(),
+                        style: const TextStyle(fontSize: 12, height: 1.4, color: AppColors.textFaint),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                Formatters.vnd(p.price),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textTitle,
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, size: 22, color: AppColors.textFaint),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
-class _PriceRow extends StatelessWidget {
-  final PricingRuleModel rule;
+/// Một dòng dịch vụ thêm ở màn Chi tiết: biểu tượng + tên + giá/đơn vị.
+class _AddonRow extends StatelessWidget {
+  final AddonServiceModel addon;
 
-  const _PriceRow({required this.rule});
+  const _AddonRow({required this.addon});
 
   @override
   Widget build(BuildContext context) {
-    final isGolden = rule.slotType == 'golden';
-
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(color: AppColors.surfacePink, shape: BoxShape.circle),
+            child: Icon(
+              addon.role == StaffRoles.makeup ? Icons.brush_outlined : Icons.photo_camera_outlined,
+              size: 18,
+              color: AppColors.accentText,
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isGolden ? 'Giờ vàng · 18:00 – 22:00' : 'Giờ thường · 08:00 – 18:00',
-                  style: TextStyle(
+                  addon.name,
+                  style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: isGolden ? AppColors.statusWarning : AppColors.textTitle,
+                    color: AppColors.textTitle,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  _dayLabel(rule.dayType),
-                  style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
-                ),
+                if (addon.description != null && addon.description!.trim().isNotEmpty)
+                  Text(
+                    addon.description!.trim(),
+                    style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
+                  ),
               ],
             ),
           ),
@@ -881,13 +995,10 @@ class _PriceRow extends StatelessWidget {
             TextSpan(
               children: [
                 TextSpan(
-                  text: Formatters.vnd(rule.pricePerHour),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textTitle,
-                  ),
+                  text: Formatters.vnd(addon.price),
+                  style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textTitle),
                 ),
-                const TextSpan(text: ' / giờ'),
+                TextSpan(text: addon.unitLabel),
               ],
             ),
             style: const TextStyle(fontSize: 14, color: AppColors.textBody),
@@ -896,16 +1007,56 @@ class _PriceRow extends StatelessWidget {
       ),
     );
   }
+}
 
-  static String _dayLabel(String dayType) {
-    switch (dayType) {
-      case 'weekend':
-        return 'Cuối tuần';
-      case 'holiday':
-        return 'Ngày lễ';
-      default:
-        return 'Ngày thường (T2 – T6)';
-    }
+/// Giờ mở cửa + phụ thu (thay cho bảng giá 4 ô cũ).
+class _OpeningInfo extends StatelessWidget {
+  final StudioDetailModel detail;
+
+  const _OpeningInfo({required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = <String>[
+      detail.isOpen24h ? 'Mở cửa 24/7' : 'Mở cửa ${detail.openTime} – ${detail.closeTime} hằng ngày',
+      if (detail.eveningSurchargePct > 0)
+        'Phụ thu +${detail.eveningSurchargePct}% nếu bắt đầu từ ${detail.eveningStartTime}',
+      if (detail.weekendSurchargePct > 0) 'Phụ thu +${detail.weekendSurchargePct}% thứ 7, chủ nhật',
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final line in lines)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(Icons.schedule_rounded, size: 14, color: AppColors.textFaint),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      line,
+                      style: const TextStyle(fontSize: 13, height: 1.4, color: AppColors.textBody),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

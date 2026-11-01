@@ -96,7 +96,7 @@ class PhotoStudioCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  // Giá thấp nhất — chỉ hiện khi studio đã khai báo bảng giá.
+                  // Giá gói rẻ nhất — chỉ hiện khi studio đã có gói thuê.
                   if (studio.minPrice != null) ...[
                     const SizedBox(height: 6),
                     Text.rich(
@@ -110,7 +110,8 @@ class PhotoStudioCard extends StatelessWidget {
                               fontWeight: FontWeight.w700,
                             ),
                           ),
-                          const TextSpan(text: ' / giờ'),
+                          if (studio.minPriceMinutes != null)
+                            TextSpan(text: ' / ${Formatters.duration(studio.minPriceMinutes!)}'),
                         ],
                       ),
                       maxLines: 1,

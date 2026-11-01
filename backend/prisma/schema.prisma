@@ -62,6 +62,8 @@ model Studio {
   sets          StudioSet[]
   images        StudioImage[]
   bookings      Booking[]
+  staff         StaffMember[]
+  addons        AddonService[]
   reviews       Review[]
   conversations Conversation[]
   view_histories ViewHistory[]
@@ -135,6 +137,73 @@ model StudioImage {
   @@map("studio_images")
 }
 
+// ---------------------------------------------------------------------------
+// NHÂN SỰ + DỊCH VỤ THÊM (01/11/2026): thợ ảnh, thợ trang điểm.
+// Khách tick dịch vụ thêm khi đặt -> chỉ đặt được khi còn thợ rảnh đúng vai trò;
+// chủ studio phân công thợ cụ thể khi xác nhận đơn (không xếp trùng giờ).
+// ---------------------------------------------------------------------------
+
+model StaffMember {
+  id         String    @id @default(uuid())
+  studio_id  String
+  full_name  String    @db.VarChar(100)
+  role       StaffRole
+  phone      String?   @db.VarChar(20)
+  avatar_url String?
+  // Nghỉ việc / tạm nghỉ -> ẩn, không xoá (còn lịch sử phân công)
+  is_active  Boolean   @default(true)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  studio      Studio         @relation(fields: [studio_id], references: [id])
+  assignments BookingAddon[]
+
+  @@index([studio_id])
+  @@map("staff_members")
+}
+
+model AddonService {
+  id          String    @id @default(uuid())
+  studio_id   String
+  role        StaffRole // dịch vụ cần 1 người thuộc vai trò này
+  name        String    @db.VarChar(100)
+  description String?
+  price       Decimal   @db.Decimal(12, 2)
+  unit        AddonUnit // tính theo lượt / theo giờ / theo người
+  is_active   Boolean   @default(true)
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  studio        Studio         @relation(fields: [studio_id], references: [id])
+  booking_lines BookingAddon[]
+
+  @@index([studio_id])
+  @@map("addon_services")
+}
+
+// Dịch vụ thêm trong một đơn (snapshot tên + giá lúc đặt) + thợ được phân công.
+model BookingAddon {
+  id         String    @id @default(uuid())
+  booking_id String
+  addon_id   String?
+  name       String    @db.VarChar(100)
+  role       StaffRole
+  unit       AddonUnit
+  unit_price Decimal   @db.Decimal(12, 2)
+  quantity   Decimal   @db.Decimal(6, 2) // số lượt / số giờ / số người
+  amount     Decimal   @db.Decimal(12, 2)
+  // Null khi đơn còn "chờ xác nhận"; chủ studio chọn thợ lúc xác nhận
+  staff_id   String?
+
+  booking Booking       @relation(fields: [booking_id], references: [id])
+  addon   AddonService? @relation(fields: [addon_id], references: [id])
+  staff   StaffMember?  @relation(fields: [staff_id], references: [id])
+
+  @@index([booking_id])
+  @@index([staff_id])
+  @@map("booking_addons")
+}
+
 model Booking {
   id             String        @id @default(uuid())
   user_id        String
@@ -147,10 +216,12 @@ model Booking {
   num_people     Int           @default(1)
   start_time     DateTime
   end_time       DateTime
-  // Chi tiết giá (snapshot lúc đặt): total_amount = base_amount + extra_people_amount + surcharge_amount
+  // Chi tiết giá (snapshot lúc đặt):
+  // total_amount = base_amount + extra_people_amount + surcharge_amount + addons_amount
   base_amount         Decimal? @db.Decimal(12, 2)
   extra_people_amount Decimal? @db.Decimal(12, 2)
   surcharge_amount    Decimal? @db.Decimal(12, 2)
+  addons_amount       Decimal? @db.Decimal(12, 2)
   total_amount   Decimal       @db.Decimal(12, 2)
   deposit_amount Decimal       @db.Decimal(12, 2)
   status         BookingStatus @default(pending)
@@ -164,6 +235,7 @@ model Booking {
   set     StudioSet      @relation(fields: [set_id], references: [id])
   package RentalPackage? @relation(fields: [package_id], references: [id])
   review  Review?
+  addons  BookingAddon[]
 
   @@index([user_id])
   @@index([studio_id])
@@ -298,6 +370,17 @@ enum StudioStatus {
   pending
   active
   rejected
+}
+
+enum StaffRole {
+  photographer // thợ ảnh
+  makeup       // thợ trang điểm
+}
+
+enum AddonUnit {
+  per_booking // theo lượt (giá cố định cho cả đơn)
+  per_hour    // theo giờ (nhân thời lượng gói)
+  per_person  // theo người (nhân số người)
 }
 
 enum BookingStatus {

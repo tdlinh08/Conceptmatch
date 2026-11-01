@@ -1,5 +1,8 @@
 import {
+  addonLine,
   assertValidStart,
+  hasFreeStaff,
+  withAddons,
   listStartTimes,
   PricingError,
   quotePrice,
@@ -169,5 +172,68 @@ describe('assertValidStart', () => {
     expect(() =>
       assertValidStart({ ...opts, start: wed(9), now: wed(10) }),
     ).toThrow('quá khứ');
+  });
+});
+
+describe('Dịch vụ thêm (thợ ảnh / trang điểm)', () => {
+  it('theo giờ: nhân thời lượng gói (gói 90 phút = 1,5 giờ)', () => {
+    expect(addonLine({ price: 200000, unit: 'per_hour' }, 90, 2)).toEqual({
+      quantity: 1.5,
+      amount: 300000,
+    });
+  });
+  it('theo người: nhân số người', () => {
+    expect(addonLine({ price: 150000, unit: 'per_person' }, 120, 3)).toEqual({
+      quantity: 3,
+      amount: 450000,
+    });
+  });
+  it('theo lượt: giá cố định', () => {
+    expect(addonLine({ price: 500000, unit: 'per_booking' }, 240, 5)).toEqual({
+      quantity: 1,
+      amount: 500000,
+    });
+  });
+  it('phụ thu chỉ áp cho tiền phòng; cọc tính trên tổng có dịch vụ', () => {
+    // phòng 100.000 + phụ thu 20% = 120.000; dịch vụ 300.000 -> tổng 420.000, cọc 126.000
+    const room = quotePrice(PKG, SURCHARGE, 2, wed(18));
+    const q = withAddons(room, 300000);
+    expect(q.surcharge_amount).toBe(20000);
+    expect(q.total_amount).toBe(420000);
+    expect(q.deposit_amount).toBe(126000);
+  });
+});
+
+describe('hasFreeStaff — còn thợ rảnh', () => {
+  const at = (h: number, m = 0) => new Date(2026, 10, 4, h, m);
+  const busy = [
+    { start: at(9), end: at(11) },
+    { start: at(10), end: at(12) },
+  ];
+  it('2 thợ, 2 đơn chồng khung 10–11 -> hết thợ', () => {
+    expect(hasFreeStaff(at(10), at(11), 2, busy)).toBe(false);
+  });
+  it('3 thợ -> vẫn còn 1 người', () => {
+    expect(hasFreeStaff(at(10), at(11), 3, busy)).toBe(true);
+  });
+  it('khung chạm mép (12:00) không tính là chồng', () => {
+    expect(hasFreeStaff(at(12), at(13), 1, busy)).toBe(true);
+  });
+  it('0 thợ -> không bao giờ đặt được', () => {
+    expect(hasFreeStaff(at(14), at(15), 0, [])).toBe(false);
+  });
+  it('listStartTimes loại giờ hết thợ dù phòng còn trống', () => {
+    const slots = listStartTimes({
+      date: new Date(2026, 10, 4),
+      openTime: '09:00',
+      closeTime: '13:00',
+      durationMinutes: 60,
+      busy: [], // phòng trống cả ngày
+      roles: [{ capacity: 1, busy: [{ start: at(10), end: at(11) }] }], // 1 thợ, bận 10–11
+      now: new Date(2026, 10, 1),
+    });
+    expect(
+      slots.map((s) => toHHmm(s.start.getHours() * 60 + s.start.getMinutes())),
+    ).toEqual(['09:00', '11:00', '11:30', '12:00']);
   });
 });

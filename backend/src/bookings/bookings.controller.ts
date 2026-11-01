@@ -47,6 +47,13 @@ export class BookingsController {
 
   // Không @Roles(...) -> chỉ cần đăng nhập (User đặt hoặc Owner của studio đều
   // xem được), việc phân biệt ai được xem nằm trong logic service.
+  // Thợ đang rảnh để phân công khi xác nhận đơn có dịch vụ thêm
+  @Roles('studio_owner')
+  @Get(':id/available-staff')
+  availableStaff(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') ownerId: string) {
+    return this.bookingsService.availableStaff(id, ownerId);
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,

@@ -92,16 +92,23 @@ class BookingsProvider extends ChangeNotifier {
 
   // ---- Đặt lịch ----
 
-  /// Các khung 1 giờ còn trống của [setId] trong ngày [date].
+  /// Các giờ bắt đầu còn trống của gói [packageId] trong ngày [date], giá tính cho [numPeople] người.
   Future<AvailabilityResult> fetchAvailability({
     required String studioId,
-    required String setId,
+    required String packageId,
     required DateTime date,
+    required int numPeople,
+    List<String> addonIds = const [],
   }) async {
     try {
       final response = await _apiClient.dio.get(
         '/studios/$studioId/availability',
-        queryParameters: {'date': formatApiDate(date), 'set_id': setId},
+        queryParameters: {
+          'date': formatApiDate(date),
+          'package_id': packageId,
+          'num_people': numPeople,
+          if (addonIds.isNotEmpty) 'addon_ids': addonIds.join(','),
+        },
       );
       return AvailabilityResult.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
@@ -109,25 +116,25 @@ class BookingsProvider extends ChangeNotifier {
     }
   }
 
-  /// Tạo đơn đặt lịch từ giờ [startHour] đến [endHour] (vd 14 -> 16 là 2 tiếng).
+  /// Đặt gói [packageId] bắt đầu lúc [startTime] ("09:30") ngày [date].
+  /// KHÔNG gửi giá: backend tự tính lại từ gói + số người + phụ thu.
   Future<CreatedBooking> createBooking({
-    required String studioId,
-    required String setId,
+    required String packageId,
     required DateTime date,
-    required int startHour,
-    required int endHour,
+    required String startTime,
+    required int numPeople,
+    List<String> addonIds = const [],
     String? note,
   }) async {
-    final day = formatApiDate(date);
     try {
       final response = await _apiClient.dio.post(
         '/bookings',
         data: {
-          'studio_id': studioId,
-          'set_id': setId,
+          'package_id': packageId,
           // Không kèm múi giờ: backend hiểu theo giờ địa phương của máy chủ (VN)
-          'start_time': '${day}T${_two(startHour)}:00:00',
-          'end_time': '${day}T${_two(endHour)}:00:00',
+          'start_time': '${formatApiDate(date)}T$startTime:00',
+          'num_people': numPeople,
+          if (addonIds.isNotEmpty) 'addon_ids': addonIds,
           if (note != null && note.trim().isNotEmpty) 'special_note': note.trim(),
         },
       );

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -7,51 +9,74 @@ import '../../models/studio_detail_model.dart';
 import '../../providers/bookings_provider.dart';
 import 'booking_success_screen.dart';
 
-/// Màn chọn lịch: chọn set -> chọn ngày -> chọn 1 hoặc nhiều giờ LIỀN NHAU -> đặt.
+/// Màn chọn lịch theo GÓI: chọn set -> gói -> số người -> ngày -> giờ bắt đầu -> đặt.
+/// Giá hiển thị lấy từ backend (GET availability), app không tự tính phụ thu.
 class BookingScreen extends StatefulWidget {
   final StudioDetailModel studio;
   final String? initialSetId;
+  final String? initialPackageId;
 
-  const BookingScreen({super.key, required this.studio, this.initialSetId});
+  const BookingScreen({
+    super.key,
+    required this.studio,
+    this.initialSetId,
+    this.initialPackageId,
+  });
 
   @override
   State<BookingScreen> createState() => _BookingScreenState();
 }
 
-/// Trạng thái hiển thị của một ô giờ.
-enum _SlotState { available, booked, past, noPrice }
-
 class _BookingScreenState extends State<BookingScreen> {
-  // Khớp với OPENING_HOUR / GOLDEN_HOUR / CLOSING_HOUR trong backend.
-  static const int _openHour = 8;
-  static const int _goldenHour = 18;
-  static const int _closeHour = 22;
   static const int _daysAhead = 14; // cho chọn trong 14 ngày tới
   static const double _depositRatio = 0.3; // khớp DEPOSIT_RATIO trong backend
 
-  late String _setId;
+  late StudioSetModel _set;
+  late RentalPackageModel _package;
+  late int _people;
   late DateTime _date;
   final _noteController = TextEditingController();
 
   AvailabilityResult? _availability;
   bool _loadingSlots = false;
   String? _slotsError;
-
-  int? _rangeStart; // giờ bắt đầu đã chọn (vd 14)
-  int? _rangeEnd; // giờ bắt đầu của ô CUỐI đã chọn (vd 15 -> kết thúc 16:00)
+  String? _selectedStart; // "09:30"
+  // Dịch vụ thêm đang tick, theo vai trò (mỗi vai trò tối đa 1 dịch vụ): role -> addonId
+  final Map<String, String> _addonByRole = {};
+  int _requestId = 0; // bỏ qua kết quả cũ khi người dùng đổi lựa chọn liên tục
+  Timer? _peopleDebounce;
 
   bool _submitting = false;
+
+  List<StudioSetModel> get _bookableSets =>
+      widget.studio.sets.where((s) => s.isBookable).toList();
+
+  AvailableSlot? get _selectedSlot {
+    final slots = _availability?.slots ?? const <AvailableSlot>[];
+    for (final s in slots) {
+      if (s.start == _selectedStart) return s;
+    }
+    return null;
+  }
 
   @override
   void initState() {
     super.initState();
-    final sets = widget.studio.sets;
-    _setId = sets.any((s) => s.id == widget.initialSetId) ? widget.initialSetId! : sets.first.id;
+    final sets = _bookableSets; // màn Chi tiết chỉ mở màn này khi có ít nhất 1 set có gói
+    _set = sets.firstWhere((s) => s.id == widget.initialSetId, orElse: () => sets.first);
+    _package = _set.packages.firstWhere(
+      (p) => p.id == widget.initialPackageId,
+      orElse: () => _set.packages.first,
+    );
+    _people = _defaultPeople(_package);
 
-    // Sau 21h thì hôm nay không còn giờ nào -> mặc định chọn ngày mai.
+    // Gần giờ đóng cửa thì hôm nay không còn giờ nào -> mặc định chọn ngày mai.
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    _date = now.hour >= _closeHour - 1 ? today.add(const Duration(days: 1)) : today;
+    final nowMinutes = now.hour * 60 + now.minute;
+    _date = nowMinutes + _package.durationMinutes > _toMinutes(widget.studio.closeTime)
+        ? today.add(const Duration(days: 1))
+        : today;
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadSlots());
   }
@@ -59,7 +84,16 @@ class _BookingScreenState extends State<BookingScreen> {
   @override
   void dispose() {
     _noteController.dispose();
+    _peopleDebounce?.cancel();
     super.dispose();
+  }
+
+  static int _defaultPeople(RentalPackageModel p) =>
+      p.includedPeople <= p.maxPeople ? p.includedPeople : p.maxPeople;
+
+  static int _toMinutes(String hhmm) {
+    final parts = hhmm.split(':');
+    return int.parse(parts[0]) * 60 + int.parse(parts[1]);
   }
 
   // ===========================================================================
@@ -67,116 +101,101 @@ class _BookingScreenState extends State<BookingScreen> {
   // ===========================================================================
 
   Future<void> _loadSlots() async {
+    final requestId = ++_requestId;
     setState(() {
       _loadingSlots = true;
       _slotsError = null;
-      _rangeStart = null;
-      _rangeEnd = null;
     });
     try {
       final result = await context.read<BookingsProvider>().fetchAvailability(
             studioId: widget.studio.id,
-            setId: _setId,
+            packageId: _package.id,
             date: _date,
+            numPeople: _people,
+            addonIds: _addonByRole.values.toList(),
           );
-      if (!mounted) return;
-      setState(() => _availability = result);
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _availability = result;
+        // Giữ giờ đã chọn nếu vẫn còn trống (vd chỉ đổi số người), không thì bỏ chọn.
+        if (!result.slots.any((s) => s.start == _selectedStart)) _selectedStart = null;
+      });
     } on BookingException catch (e) {
-      if (!mounted) return;
-      setState(() => _slotsError = e.message);
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _availability = null;
+        _selectedStart = null;
+        _slotsError = e.message;
+      });
     } finally {
-      if (mounted) setState(() => _loadingSlots = false);
+      if (mounted && requestId == _requestId) setState(() => _loadingSlots = false);
     }
   }
 
-  AvailableSlot? _slotAt(int hour) {
-    final slots = _availability?.slots ?? const <AvailableSlot>[];
-    for (final s in slots) {
-      if (s.hour == hour) return s;
-    }
-    return null;
-  }
-
-  _SlotState _stateOf(int hour) {
-    final now = DateTime.now();
-    final isToday = _date.year == now.year && _date.month == now.month && _date.day == now.day;
-    if (isToday && hour <= now.hour) return _SlotState.past;
-
-    final slot = _slotAt(hour);
-    if (slot == null) return _SlotState.booked;
-    if (slot.price == null) return _SlotState.noPrice;
-    return _SlotState.available;
-  }
-
-  bool _isSelected(int hour) =>
-      _rangeStart != null && hour >= _rangeStart! && hour <= _rangeEnd!;
-
-  int get _selectedHours => _rangeStart == null ? 0 : _rangeEnd! - _rangeStart! + 1;
-
-  double get _total {
-    if (_rangeStart == null) return 0;
-    var sum = 0.0;
-    for (var h = _rangeStart!; h <= _rangeEnd!; h++) {
-      sum += _slotAt(h)?.price ?? 0;
-    }
-    return sum;
-  }
-
-  // ===========================================================================
-  // Chọn giờ: chạm 1 ô = chọn ô đó; chạm ô liền kề = nối dài; chạm ô ở đầu/cuối
-  // đoạn đang chọn = bỏ ô đó; chạm ô xa = chọn lại từ đầu.
-  // ===========================================================================
-
-  void _onSlotTap(int hour) {
-    if (_stateOf(hour) != _SlotState.available) return;
-
+  void _onSelectSet(StudioSetModel set) {
+    if (set.id == _set.id) return;
     setState(() {
-      if (_rangeStart == null) {
-        _rangeStart = _rangeEnd = hour;
-      } else if (hour == _rangeEnd! + 1) {
-        _rangeEnd = hour;
-      } else if (hour == _rangeStart! - 1) {
-        _rangeStart = hour;
-      } else if (_rangeStart == _rangeEnd && hour == _rangeStart) {
-        _rangeStart = _rangeEnd = null; // bỏ chọn ô duy nhất
-      } else if (hour == _rangeStart) {
-        _rangeStart = hour + 1;
-      } else if (hour == _rangeEnd) {
-        _rangeEnd = hour - 1;
+      _set = set;
+      _package = set.packages.first;
+      _people = _people.clamp(1, _package.maxPeople).toInt();
+      _selectedStart = null;
+    });
+    _loadSlots();
+  }
+
+  void _onSelectPackage(RentalPackageModel pkg) {
+    if (pkg.id == _package.id) return;
+    setState(() {
+      _package = pkg;
+      _people = _people.clamp(1, pkg.maxPeople).toInt();
+      _selectedStart = null; // gói khác thời lượng -> giờ trống khác
+    });
+    _loadSlots();
+  }
+
+  void _onChangePeople(int delta) {
+    final next = (_people + delta).clamp(1, _package.maxPeople).toInt();
+    if (next == _people) return;
+    setState(() => _people = next);
+    // Bấm +/- liên tục chỉ gọi API một lần sau khi dừng tay
+    _peopleDebounce?.cancel();
+    _peopleDebounce = Timer(const Duration(milliseconds: 350), _loadSlots);
+  }
+
+  /// Tick / bỏ tick dịch vụ; chọn dịch vụ khác cùng vai trò thì thay dịch vụ cũ.
+  void _onToggleAddon(AddonServiceModel addon) {
+    setState(() {
+      if (_addonByRole[addon.role] == addon.id) {
+        _addonByRole.remove(addon.role);
       } else {
-        _rangeStart = _rangeEnd = hour; // chạm ô ở giữa hoặc ở xa -> chọn lại
+        _addonByRole[addon.role] = addon.id;
       }
     });
-  }
-
-  void _onSelectSet(String setId) {
-    if (setId == _setId) return;
-    setState(() => _setId = setId);
-    _loadSlots();
+    _loadSlots(); // cần thợ rảnh -> giờ trống và giá thay đổi
   }
 
   void _onSelectDate(DateTime date) {
     if (DateUtils.isSameDay(date, _date)) return;
-    setState(() => _date = date);
+    setState(() {
+      _date = date;
+      _selectedStart = null;
+    });
     _loadSlots();
   }
 
   Future<void> _submit() async {
-    if (_rangeStart == null || _submitting) return;
+    final slot = _selectedSlot;
+    if (slot == null || _submitting || _loadingSlots) return;
     FocusScope.of(context).unfocus();
     setState(() => _submitting = true);
 
-    final setName = widget.studio.sets.firstWhere((s) => s.id == _setId).name;
-    final start = _rangeStart!;
-    final end = _rangeEnd! + 1;
-
     try {
       final booking = await context.read<BookingsProvider>().createBooking(
-            studioId: widget.studio.id,
-            setId: _setId,
+            packageId: _package.id,
             date: _date,
-            startHour: start,
-            endHour: end,
+            startTime: slot.start,
+            numPeople: _people,
+            addonIds: _addonByRole.values.toList(),
             note: _noteController.text,
           );
       if (!mounted) return;
@@ -185,10 +204,7 @@ class _BookingScreenState extends State<BookingScreen> {
           builder: (_) => BookingSuccessScreen(
             booking: booking,
             studioName: widget.studio.name,
-            setName: setName,
-            date: _date,
-            startHour: start,
-            endHour: end,
+            setName: _set.name,
           ),
         ),
       );
@@ -196,7 +212,10 @@ class _BookingScreenState extends State<BookingScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
       // Khung giờ vừa bị người khác đặt mất -> tải lại lịch trống cho đúng.
-      if (e.isSlotTaken) _loadSlots();
+      if (e.isSlotTaken) {
+        setState(() => _selectedStart = null);
+        _loadSlots();
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -208,6 +227,8 @@ class _BookingScreenState extends State<BookingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final sets = _bookableSets;
+
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -234,9 +255,52 @@ class _BookingScreenState extends State<BookingScreen> {
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         children: [
-          const _Label('BỐI CẢNH'),
+          if (sets.length > 1) ...[
+            const _Label('BỐI CẢNH'),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final set in sets)
+                  _Pill(label: set.name, selected: set.id == _set.id, onTap: () => _onSelectSet(set)),
+              ],
+            ),
+            const SizedBox(height: 24),
+          ],
+          _Label(sets.length > 1 ? 'GÓI THUÊ' : 'GÓI THUÊ · ${_set.name.toUpperCase()}'),
           const SizedBox(height: 10),
-          _buildSetChips(),
+          for (final pkg in _set.packages) ...[
+            _PackageOption(
+              package: pkg,
+              selected: pkg.id == _package.id,
+              onTap: () => _onSelectPackage(pkg),
+            ),
+            const SizedBox(height: 10),
+          ],
+          const SizedBox(height: 14),
+          const _Label('SỐ NGƯỜI'),
+          const SizedBox(height: 10),
+          _buildPeopleStepper(),
+          if (widget.studio.addons.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            const _Label('DỊCH VỤ THÊM'),
+            const SizedBox(height: 4),
+            const Text(
+              'Thợ do studio cung cấp, studio sẽ phân công người cụ thể khi xác nhận đơn.',
+              style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+            ),
+            const SizedBox(height: 10),
+            for (final addon in widget.studio.addons) ...[
+              _AddonOption(
+                addon: addon,
+                estimate: addon.amountFor(_package.durationMinutes, _people),
+                selected: _addonByRole[addon.role] == addon.id,
+                onTap: () => _onToggleAddon(addon),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ],
           const SizedBox(height: 24),
           Row(
             children: [
@@ -250,16 +314,20 @@ class _BookingScreenState extends State<BookingScreen> {
           const SizedBox(height: 10),
           _buildDateStrip(),
           const SizedBox(height: 24),
-          const _Label('KHUNG GIỜ'),
+          const _Label('CHỌN GIỜ'),
           const SizedBox(height: 4),
-          const Text(
-            'Chạm để chọn, chạm ô bên cạnh để đặt nhiều giờ liền nhau.',
-            style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+          Text(
+            'Mỗi lựa chọn là một lượt ${Formatters.duration(_package.durationMinutes)} · chỉ hiện giờ còn trống'
+            '${_addonByRole.isEmpty ? '' : ' và còn thợ rảnh'} · '
+            'studio mở ${widget.studio.isOpen24h ? '24/7' : '${widget.studio.openTime}–${widget.studio.closeTime}'}',
+            style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
           ),
           const SizedBox(height: 12),
           _buildSlotsArea(),
-          const SizedBox(height: 12),
-          const _Legend(),
+          if (_surchargeNote() != null) ...[
+            const SizedBox(height: 12),
+            _InfoNote(text: _surchargeNote()!),
+          ],
           const SizedBox(height: 24),
           const _Label('GHI CHÚ CHO STUDIO'),
           const SizedBox(height: 10),
@@ -270,7 +338,7 @@ class _BookingScreenState extends State<BookingScreen> {
             maxLength: 300,
             textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(
-              hintText: 'Ví dụ: cần thêm đèn spotlight, có 2 người mẫu…',
+              hintText: 'Ví dụ: cần thêm đèn spotlight, mang theo thú cưng…',
               counterText: '',
             ),
           ),
@@ -280,18 +348,70 @@ class _BookingScreenState extends State<BookingScreen> {
     );
   }
 
-  Widget _buildSetChips() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: widget.studio.sets.map((set) {
-        final selected = set.id == _setId;
-        return _Pill(
-          label: set.name,
-          selected: selected,
-          onTap: () => _onSelectSet(set.id),
-        );
-      }).toList(),
+  String? _surchargeNote() {
+    final s = widget.studio;
+    final parts = <String>[
+      if (s.eveningSurchargePct > 0) '+${s.eveningSurchargePct}% nếu bắt đầu từ ${s.eveningStartTime}',
+      if (s.weekendSurchargePct > 0) '+${s.weekendSurchargePct}% vào thứ 7, chủ nhật',
+    ];
+    return parts.isEmpty ? null : 'Phụ thu ${parts.join(', ')}. Giá ở từng giờ đã cộng sẵn.';
+  }
+
+  Widget _buildPeopleStepper() {
+    final extra = _people - _package.includedPeople;
+    final hint = extra > 0
+        ? 'Giá gồm ${_package.includedPeople} người · thêm $extra × ${Formatters.vnd(_package.extraPersonFee)}'
+        : 'Giá gói đã gồm ${_package.includedPeople} người';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.outline),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hint,
+                  style: const TextStyle(fontSize: 13, color: AppColors.textBody),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Tối đa ${_package.maxPeople} người',
+                  style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
+                ),
+              ],
+            ),
+          ),
+          _StepButton(
+            icon: Icons.remove_rounded,
+            tooltip: 'Bớt 1 người',
+            onPressed: _people > 1 ? () => _onChangePeople(-1) : null,
+          ),
+          SizedBox(
+            width: 40,
+            child: Text(
+              '$_people',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textTitle,
+              ),
+            ),
+          ),
+          _StepButton(
+            icon: Icons.add_rounded,
+            tooltip: 'Thêm 1 người',
+            onPressed: _people < _package.maxPeople ? () => _onChangePeople(1) : null,
+          ),
+        ],
+      ),
     );
   }
 
@@ -361,7 +481,7 @@ class _BookingScreenState extends State<BookingScreen> {
   }
 
   Widget _buildSlotsArea() {
-    if (_loadingSlots) {
+    if (_loadingSlots && _availability == null) {
       return const SizedBox(height: 160, child: Center(child: CircularProgressIndicator()));
     }
     if (_slotsError != null) {
@@ -386,46 +506,55 @@ class _BookingScreenState extends State<BookingScreen> {
       );
     }
 
-    final hours = [for (var h = _openHour; h < _closeHour; h++) h];
-    final anyAvailable = hours.any((h) => _stateOf(h) == _SlotState.available);
+    final slots = _availability?.slots ?? const <AvailableSlot>[];
+    if (slots.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceMuted,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(
+          _addonByRole.isEmpty
+              ? 'Ngày này không còn giờ trống cho gói đã chọn. Bạn thử ngày khác hoặc gói ngắn hơn nhé.'
+              : 'Ngày này không còn giờ có cả phòng trống lẫn thợ rảnh. Bạn thử ngày khác hoặc bỏ bớt dịch vụ thêm nhé.',
+          style: const TextStyle(fontSize: 13, height: 1.5, color: AppColors.textBody),
+        ),
+      );
+    }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        GridView.count(
-          crossAxisCount: 3,
+    // Đang tải lại (vd đổi số người): làm mờ lưới cũ thay vì nháy vòng xoay
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 150),
+      opacity: _loadingSlots ? 0.45 : 1,
+      child: IgnorePointer(
+        ignoring: _loadingSlots,
+        child: GridView.count(
+          crossAxisCount: 2, // 2 cột đủ chỗ ghi cả giờ kết thúc "15:30 – 17:30"
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 8,
           crossAxisSpacing: 8,
-          childAspectRatio: 1.75,
+          childAspectRatio: 2.5,
           children: [
-            for (final h in hours)
+            for (final slot in slots)
               _SlotTile(
-                hour: h,
-                price: _slotAt(h)?.price,
-                state: _stateOf(h),
-                selected: _isSelected(h),
-                golden: h >= _goldenHour,
-                onTap: () => _onSlotTap(h),
+                slot: slot,
+                selected: slot.start == _selectedStart,
+                onTap: () => setState(
+                  () => _selectedStart = slot.start == _selectedStart ? null : slot.start,
+                ),
               ),
           ],
         ),
-        if (!anyAvailable)
-          const Padding(
-            padding: EdgeInsets.only(top: 12),
-            child: Text(
-              'Ngày này đã kín lịch. Bạn thử chọn ngày khác hoặc set khác nhé.',
-              style: TextStyle(fontSize: 13, color: AppColors.textBody),
-            ),
-          ),
-      ],
+      ),
     );
   }
 
   Widget _buildBottomBar() {
-    final hasSelection = _rangeStart != null;
-    final deposit = (_total * _depositRatio).roundToDouble();
+    final slot = _selectedSlot;
+    // Làm tròn đến 1.000đ giống backend; số cuối cùng vẫn lấy theo đơn backend trả về.
+    final deposit = slot == null ? 0.0 : ((slot.price * _depositRatio) / 1000).round() * 1000.0;
 
     return Container(
       decoration: const BoxDecoration(
@@ -439,18 +568,20 @@ class _BookingScreenState extends State<BookingScreen> {
           child: Row(
             children: [
               Expanded(
-                child: hasSelection
+                child: slot != null
                     ? Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${_two(_rangeStart!)}:00 – ${_two(_rangeEnd! + 1)}:00 · $_selectedHours giờ',
+                            '${_dayShort(_date)} · ${slot.start} – ${slot.end} · $_people người',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            Formatters.vnd(_total),
+                            Formatters.vnd(slot.price),
                             style: const TextStyle(
                               fontSize: 21,
                               fontWeight: FontWeight.w700,
@@ -465,13 +596,13 @@ class _BookingScreenState extends State<BookingScreen> {
                         ],
                       )
                     : const Text(
-                        'Chọn khung giờ để xem tổng tiền',
+                        'Chọn giờ bắt đầu để xem tổng tiền',
                         style: TextStyle(fontSize: 14, color: AppColors.textBody),
                       ),
               ),
               const SizedBox(width: 12),
               FilledButton(
-                onPressed: hasSelection && !_submitting ? _submit : null,
+                onPressed: slot != null && !_submitting && !_loadingSlots ? _submit : null,
                 child: _submitting
                     ? const SizedBox(
                         width: 20,
@@ -487,7 +618,10 @@ class _BookingScreenState extends State<BookingScreen> {
     );
   }
 
-  static String _two(int n) => n.toString().padLeft(2, '0');
+  static String _dayShort(DateTime d) {
+    const weekdays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+    return '${weekdays[d.weekday - 1]} ${d.day}/${d.month}';
+  }
 }
 
 // =============================================================================
@@ -549,39 +683,229 @@ class _Pill extends StatelessWidget {
   }
 }
 
-class _SlotTile extends StatelessWidget {
-  final int hour;
-  final double? price;
-  final _SlotState state;
+/// Một gói để chọn: viền đậm + dấu tích khi đang chọn.
+class _PackageOption extends StatelessWidget {
+  final RentalPackageModel package;
   final bool selected;
-  final bool golden;
   final VoidCallback onTap;
 
-  const _SlotTile({
-    required this.hour,
-    required this.price,
-    required this.state,
+  const _PackageOption({required this.package, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = package;
+    final peopleText = p.extraPersonFee > 0
+        ? 'Gồm ${p.includedPeople} người · +${Formatters.vnd(p.extraPersonFee)}/người thêm · tối đa ${p.maxPeople}'
+        : 'Tối đa ${p.maxPeople} người, không phụ thu theo người';
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected ? AppColors.surfacePink : AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(
+            color: selected ? AppColors.primary : AppColors.outline,
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 1),
+                  child: Icon(
+                    selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                    size: 20,
+                    color: selected ? AppColors.primary : AppColors.textFaint,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              p.name,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textTitle,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            Formatters.vnd(p.price),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textTitle,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        Formatters.duration(p.durationMinutes),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.accentText,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        peopleText,
+                        style: const TextStyle(fontSize: 12, height: 1.4, color: AppColors.textBody),
+                      ),
+                      if (p.description != null && p.description!.trim().isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          p.description!.trim(),
+                          style: const TextStyle(fontSize: 12, height: 1.4, color: AppColors.textFaint),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Một dịch vụ thêm có ô tick; kèm số tiền ước tính cho gói + số người đang chọn.
+class _AddonOption extends StatelessWidget {
+  final AddonServiceModel addon;
+  final double estimate;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _AddonOption({
+    required this.addon,
+    required this.estimate,
     required this.selected,
-    required this.golden,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final time = '${hour.toString().padLeft(2, '0')}:00';
-    final enabled = state == _SlotState.available;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected ? AppColors.surfacePink : AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(
+            color: selected ? AppColors.primary : AppColors.outline,
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 16, 12),
+            child: Row(
+              children: [
+                Icon(
+                  selected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
+                  size: 22,
+                  color: selected ? AppColors.primary : AppColors.textFaint,
+                ),
+                const SizedBox(width: 12),
+                Icon(
+                  addon.role == StaffRoles.makeup ? Icons.brush_outlined : Icons.photo_camera_outlined,
+                  size: 18,
+                  color: AppColors.accentText,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        addon.name,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textTitle,
+                        ),
+                      ),
+                      Text(
+                        '${Formatters.vnd(addon.price)}${addon.unitLabel}',
+                        style: const TextStyle(fontSize: 12, color: AppColors.textBody),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '+${Formatters.vnd(estimate)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? AppColors.textTitle : AppColors.textFaint,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-    final String subtitle;
-    switch (state) {
-      case _SlotState.booked:
-        subtitle = 'Đã kín';
-      case _SlotState.past:
-        subtitle = 'Đã qua';
-      case _SlotState.noPrice:
-        subtitle = 'Chưa có giá';
-      case _SlotState.available:
-        subtitle = Formatters.vnd(price!);
-    }
+class _StepButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  const _StepButton({required this.icon, required this.tooltip, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton.filledTonal(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 20),
+      style: IconButton.styleFrom(
+        backgroundColor: AppColors.surfaceMuted,
+        foregroundColor: AppColors.textTitle,
+        disabledBackgroundColor: AppColors.surfaceMuted.withValues(alpha: 0.5),
+        disabledForegroundColor: AppColors.textFaint.withValues(alpha: 0.5),
+        minimumSize: const Size(44, 44),
+      ),
+    );
+  }
+}
+
+/// Ô giờ bắt đầu: giờ + giá. Giờ có phụ thu viền vàng đậm và ghi "+20%".
+class _SlotTile extends StatelessWidget {
+  final AvailableSlot slot;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SlotTile({required this.slot, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final hasSurcharge = slot.surchargePct > 0;
 
     final Color background;
     final Color titleColor;
@@ -592,12 +916,7 @@ class _SlotTile extends StatelessWidget {
       titleColor = AppColors.onPrimary;
       subtitleColor = AppColors.onPrimary.withValues(alpha: 0.85);
       border = BorderSide.none;
-    } else if (!enabled) {
-      background = Colors.transparent;
-      titleColor = AppColors.textFaint;
-      subtitleColor = AppColors.textFaint;
-      border = const BorderSide(color: AppColors.outlineStrong);
-    } else if (golden) {
+    } else if (hasSurcharge) {
       background = AppColors.surface;
       titleColor = AppColors.textTitle;
       subtitleColor = AppColors.statusWarning;
@@ -609,17 +928,19 @@ class _SlotTile extends StatelessWidget {
       border = const BorderSide(color: AppColors.outline);
     }
 
+    final price = Formatters.vnd(slot.price);
     return Semantics(
-      button: enabled,
+      button: true,
       selected: selected,
-      label: '$time, $subtitle',
+      label: 'Bắt đầu ${slot.start}, kết thúc ${slot.end}, $price'
+          '${hasSurcharge ? ', đã gồm phụ thu ${slot.surchargePct}%' : ''}',
       excludeSemantics: true,
       child: Material(
         color: background,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: border),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: enabled ? onTap : null,
+          onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Column(
@@ -627,21 +948,31 @@ class _SlotTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  time,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: titleColor,
-                    decoration: state == _SlotState.booked ? TextDecoration.lineThrough : null,
-                    decorationColor: titleColor,
-                  ),
+                  '${slot.start} – ${slot.end}', // ghi rõ cả giờ kết thúc: đây là 1 lượt trọn gói
+                  maxLines: 1,
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: titleColor),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 11.5, color: subtitleColor),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        price,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: subtitleColor),
+                      ),
+                    ),
+                    if (hasSurcharge)
+                      Text(
+                        '+${slot.surchargePct}%',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: subtitleColor,
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),
@@ -652,36 +983,26 @@ class _SlotTile extends StatelessWidget {
   }
 }
 
-class _Legend extends StatelessWidget {
-  const _Legend();
+class _InfoNote extends StatelessWidget {
+  final String text;
+  const _InfoNote({required this.text});
 
   @override
   Widget build(BuildContext context) {
-    Widget item(Color fill, BorderSide side, String label) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 14,
-              height: 14,
-              decoration: BoxDecoration(
-                color: fill,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.fromBorderSide(side),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textBody)),
-          ],
-        );
-
-    return Wrap(
-      spacing: 16,
-      runSpacing: 8,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        item(AppColors.primary, BorderSide.none, 'Đang chọn'),
-        item(AppColors.surface, BorderSide(color: AppColors.statusWarning.withValues(alpha: 0.7)),
-            'Giờ vàng (từ 18:00)'),
-        item(Colors.transparent, const BorderSide(color: AppColors.outlineStrong), 'Đã kín / đã qua'),
+        const Padding(
+          padding: EdgeInsets.only(top: 1),
+          child: Icon(Icons.info_outline_rounded, size: 16, color: AppColors.statusWarning),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(fontSize: 12, height: 1.45, color: AppColors.textBody),
+          ),
+        ),
       ],
     );
   }
