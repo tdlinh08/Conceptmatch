@@ -53,6 +53,9 @@ model Studio {
   evening_start_time    String @default("18:00") @db.VarChar(5)
   evening_surcharge_pct Int    @default(0)
   weekend_surcharge_pct Int    @default(0)
+  // Chữ dùng để tìm kiếm: tên + quận + địa chỉ + tên set + concept, đã BỎ DẤU + chữ thường
+  // (src/common/search-text.ts). Cập nhật mỗi khi sửa studio / set.
+  search_text  String?
   avg_rating   Float        @default(0)
   review_count Int          @default(0)
   created_at   DateTime     @default(now())
@@ -397,6 +400,8 @@ enum NotificationType {
   booking_new
   booking_confirmed
   booking_rejected
+  booking_cancelled // khách huỷ -> báo chủ studio (01/11/2026)
+  booking_completed // buổi chụp xong -> mời khách đánh giá (01/11/2026)
   review_new
   studio_approved
   studio_rejected

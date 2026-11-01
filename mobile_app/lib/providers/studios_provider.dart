@@ -6,11 +6,13 @@ import '../models/review_model.dart';
 
 /// Bộ lọc của màn "Tất cả studio" (khớp query của GET /studios).
 class StudioFilter {
-  final String keyword;
+  final String keyword; // tìm không dấu theo tên, quận, địa chỉ, tên set, concept
   final String? styleTag;
   final String? district;
-  final int? maxPrice; // lọc theo gói: có ít nhất 1 gói giá <= maxPrice
+  final int? maxPrice; // có ít nhất 1 gói giá <= maxPrice
   final double? minRating;
+  final Set<String> services; // 'photographer', 'makeup': studio có thợ + đang bán dịch vụ đó
+  final String sort; // 'rating' (mặc định) | 'newest'
 
   const StudioFilter({
     this.keyword = '',
@@ -18,10 +20,13 @@ class StudioFilter {
     this.district,
     this.maxPrice,
     this.minRating,
+    this.services = const {},
+    this.sort = 'rating',
   });
 
-  /// Số bộ lọc trong bảng "Bộ lọc" đang bật (không tính từ khoá và concept).
-  int get sheetCount => [district, maxPrice, minRating].where((v) => v != null).length;
+  /// Số bộ lọc trong bảng "Bộ lọc" đang bật (không tính từ khoá, concept, sắp xếp).
+  int get sheetCount =>
+      [district, maxPrice, minRating].where((v) => v != null).length + services.length;
 
   bool get isEmpty => keyword.isEmpty && styleTag == null && sheetCount == 0;
 
@@ -31,6 +36,8 @@ class StudioFilter {
     String? Function()? district,
     int? Function()? maxPrice,
     double? Function()? minRating,
+    Set<String>? services,
+    String? sort,
   }) {
     return StudioFilter(
       keyword: keyword ?? this.keyword,
@@ -38,6 +45,8 @@ class StudioFilter {
       district: district != null ? district() : this.district,
       maxPrice: maxPrice != null ? maxPrice() : this.maxPrice,
       minRating: minRating != null ? minRating() : this.minRating,
+      services: services ?? this.services,
+      sort: sort ?? this.sort,
     );
   }
 
@@ -47,6 +56,8 @@ class StudioFilter {
         if (district != null) 'district': district,
         if (maxPrice != null) 'max_price': maxPrice,
         if (minRating != null) 'min_rating': minRating,
+        if (services.isNotEmpty) 'services': (services.toList()..sort()).join(','),
+        'sort': sort,
       };
 }
 

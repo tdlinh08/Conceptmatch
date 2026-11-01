@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsPositive, IsString, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Matches,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class QueryStudiosDto {
   @IsOptional()
@@ -42,4 +51,17 @@ export class QueryStudiosDto {
   @Min(1)
   @Max(50)
   limit: number = 10;
+
+  // Dịch vụ kèm theo, dạng "photographer" / "makeup" / "photographer,makeup":
+  // studio phải đang bán dịch vụ đó VÀ có người đang làm vai trò đó.
+  @IsOptional()
+  @Matches(/^(photographer|makeup)(,(photographer|makeup))?$/, {
+    message: 'services chỉ nhận photographer, makeup (cách nhau bằng dấu phẩy)',
+  })
+  services?: string;
+
+  // Sắp xếp: rating = đánh giá cao trước (mặc định), newest = mới tham gia trước
+  @IsOptional()
+  @IsIn(['rating', 'newest'], { message: 'sort chỉ nhận rating hoặc newest' })
+  sort?: 'rating' | 'newest';
 }

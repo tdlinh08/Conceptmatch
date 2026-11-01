@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { BookingStatus, Prisma } from '@prisma/client';
+import { BookingStatus, Prisma, StaffRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateStudioDto } from './dto/create-studio.dto';
 import { UpdateStudioDto } from './dto/update-studio.dto';
@@ -14,6 +14,7 @@ import { AvailabilityQueryDto } from './dto/availability-query.dto';
 import { CreatePackageDto } from './dto/create-package.dto';
 import { UpdatePackageDto } from './dto/update-package.dto';
 import { STUDIO_SUMMARY_SELECT, toStudioSummary } from './studio-summary';
+import { normalizeSearch, searchWords } from '../common/search-text';
 import {
   addonLine,
   listStartTimes,
@@ -120,17 +121,30 @@ export class StudiosService {
   ) {}
 
   async findAll(query: QueryStudiosDto) {
-    const { keyword, district, style_tag, min_price, max_price, min_rating, page, limit } = query;
+    const { keyword, district, style_tag, min_price, max_price, min_rating, services, sort, page, limit } =
+      query;
+    const words = searchWords(keyword ?? '');
+    const roles = (services?.split(',') ?? []) as StaffRole[];
 
     const where: Prisma.StudioWhereInput = {
       status: 'active', // Public chỉ thấy studio đã được Admin duyệt
-      ...(keyword && {
-        name: { contains: keyword, mode: 'insensitive' },
+      // Tìm không dấu theo TỪNG TỪ trong tên / quận / địa chỉ / tên set / concept:
+      // "hoa nang", "nang hoa", "Hoa Nắng" đều ra "Studio Hoa Nắng".
+      ...(words.length > 0 && {
+        OR: [
+          { AND: words.map((w) => ({ search_text: { contains: w } })) },
+          { name: { contains: keyword!.trim(), mode: 'insensitive' } }, // dự phòng
+        ],
       }),
       ...(district && { district }),
       ...(min_rating !== undefined && { avg_rating: { gte: min_rating } }),
       AND: [
         ...(style_tag ? [{ sets: { some: { style_tag, is_active: true } } }] : []),
+        // Dịch vụ kèm theo: đang bán dịch vụ của vai trò đó và có người đang làm
+        ...roles.map((role) => ({
+          addons: { some: { role, is_active: true } },
+          staff: { some: { role, is_active: true } },
+        })),
         // Lọc theo giá: có ít nhất 1 gói đang bán nằm trong khoảng giá
         ...(min_price !== undefined || max_price !== undefined
           ? [
@@ -160,7 +174,10 @@ export class StudiosService {
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { created_at: 'desc' },
+        orderBy:
+          sort === 'newest'
+            ? [{ created_at: 'desc' }]
+            : [{ avg_rating: 'desc' }, { review_count: 'desc' }, { created_at: 'desc' }],
         select: STUDIO_SUMMARY_SELECT,
       }),
       this.prisma.studio.count({ where }),
@@ -218,6 +235,7 @@ export class StudiosService {
         ...dto,
         owner_id: ownerId,
         status: 'pending', // Luôn tạo ở trạng thái chờ duyệt, Admin phê duyệt sau
+        search_text: normalizeSearch([dto.name, dto.district, dto.address].join(' ')),
       },
     });
   }
@@ -226,7 +244,7 @@ export class StudiosService {
     const studio = await this.ensureOwnership(id, ownerId);
     this.assertOpeningHours(dto.open_time ?? studio.open_time, dto.close_time ?? studio.close_time);
 
-    return this.prisma.studio.update({
+    await this.prisma.studio.update({
       where: { id },
       data: {
         ...dto,
@@ -234,6 +252,24 @@ export class StudiosService {
         ...(studio.status === 'rejected' && { status: 'pending', reject_reason: null }),
       },
     });
+    return this.refreshSearchText(id); // tên / quận / địa chỉ có thể đã đổi
+  }
+
+  /** Tính lại chữ tìm kiếm (bỏ dấu) từ tên, quận, địa chỉ, tên set + concept đang hoạt động. */
+  private async refreshSearchText(studioId: string) {
+    const s = await this.prisma.studio.findUniqueOrThrow({
+      where: { id: studioId },
+      select: {
+        name: true,
+        district: true,
+        address: true,
+        sets: { where: { is_active: true }, select: { name: true, style_tag: true } },
+      },
+    });
+    const text = normalizeSearch(
+      [s.name, s.district, s.address, ...s.sets.flatMap((x) => [x.name, x.style_tag ?? ''])].join(' '),
+    );
+    return this.prisma.studio.update({ where: { id: studioId }, data: { search_text: text } });
   }
 
   // ===========================================================================
@@ -369,6 +405,7 @@ export class StudiosService {
       data: dto,
       select: SET_SELECT,
     });
+    await this.refreshSearchText(studioId); // đổi tên / concept / ẩn-hiện set
 
     if (avatarChanged) {
       await deleteLocalMedia(set.avatar_url);
@@ -408,6 +445,7 @@ export class StudiosService {
       data: { ...dto, studio_id: studioId },
       select: SET_SELECT,
     });
+    await this.refreshSearchText(studioId); // tên set + concept mới tìm được ngay
 
     // Studio đang chờ duyệt: chưa encode, Admin duyệt xong sẽ encode cả studio.
     // Studio đã hoạt động: encode ngay để set mới tìm được bằng ảnh.

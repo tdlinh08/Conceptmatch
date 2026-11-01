@@ -4,6 +4,7 @@ import '../../core/constants/api_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/bookings_provider.dart';
+import '../../providers/notifications_provider.dart';
 import '../../providers/favorites_provider.dart';
 import 'profile_edit_sheets.dart';
 
@@ -82,11 +83,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Đọc trước khi await: sau khi đăng xuất, màn này bị gỡ khỏi cây widget.
     final favorites = context.read<FavoritesProvider>();
     final bookings = context.read<BookingsProvider>();
+    final notifications = context.read<NotificationsProvider>();
     await context.read<AuthProvider>().logout();
     // Xoá dữ liệu của tài khoản vừa đăng xuất để người đăng nhập sau
     // không thấy danh sách đã lưu / lịch hẹn của người trước.
     favorites.reset();
     bookings.reset();
+    notifications.reset();
   }
 
   @override

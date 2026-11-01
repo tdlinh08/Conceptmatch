@@ -5,15 +5,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 
 @Injectable()
 export class ReviewsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   async create(userId: string, dto: CreateReviewDto) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: dto.booking_id },
+      include: { studio: { select: { owner_id: true, name: true } } },
     });
     if (!booking) {
       throw new NotFoundException('Booking không tồn tại');
@@ -36,7 +41,7 @@ export class ReviewsService {
       throw new ConflictException('Booking này đã được đánh giá');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const review = await this.prisma.$transaction(async (tx) => {
       const review = await tx.review.create({
         data: {
           booking_id: dto.booking_id,
@@ -68,5 +73,17 @@ export class ReviewsService {
 
       return review;
     });
+
+    // Báo chủ studio có đánh giá mới
+    await this.notifications.notify({
+      recipientId: booking.studio.owner_id,
+      type: 'review_new',
+      title: `Đánh giá mới ${'★'.repeat(dto.stars)}`,
+      body: dto.comment?.trim()
+        ? `${booking.studio.name}: "${dto.comment.trim().slice(0, 120)}"`
+        : `${booking.studio.name} vừa nhận đánh giá ${dto.stars} sao.`,
+      refId: booking.id,
+    });
+    return review;
   }
 }

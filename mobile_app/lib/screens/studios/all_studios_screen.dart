@@ -13,8 +13,14 @@ import 'widgets/photo_studio_card.dart';
 class AllStudiosScreen extends StatefulWidget {
   final String? initialStyleTag;
   final String? initialKeyword;
+  final bool openFilterOnStart; // nút bộ lọc ở Home -> mở luôn bảng lọc
 
-  const AllStudiosScreen({super.key, this.initialStyleTag, this.initialKeyword});
+  const AllStudiosScreen({
+    super.key,
+    this.initialStyleTag,
+    this.initialKeyword,
+    this.openFilterOnStart = false,
+  });
 
   @override
   State<AllStudiosScreen> createState() => _AllStudiosScreenState();
@@ -50,6 +56,7 @@ class _AllStudiosScreenState extends State<AllStudiosScreen> {
         styleTag: widget.initialStyleTag,
       ));
       if (_provider.styleTags.isEmpty) _provider.fetchStyleTags();
+      if (widget.openFilterOnStart) _openFilterSheet();
     });
   }
 
@@ -142,7 +149,7 @@ class _AllStudiosScreenState extends State<AllStudiosScreen> {
                     onChanged: _onSearchChanged,
                     onSubmitted: _onSearchChanged,
                     decoration: InputDecoration(
-                      hintText: 'Tìm theo tên studio…',
+                      hintText: 'Tên studio, quận, concept…',
                       prefixIcon: const Icon(Icons.search_rounded),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                       suffixIcon: _searchController.text.isEmpty
@@ -209,8 +216,18 @@ class _AllStudiosScreenState extends State<AllStudiosScreen> {
         ),
       if (filter.minRating != null)
         _ActiveChip(
-          label: 'Từ ${filter.minRating!.toStringAsFixed(0)}★',
+          label: 'Từ ${_ratingLabel(filter.minRating!)}★',
           onRemove: () => _apply(filter.copyWith(minRating: () => null)),
+        ),
+      for (final role in filter.services)
+        _ActiveChip(
+          label: _serviceLabel(role),
+          onRemove: () => _apply(filter.copyWith(services: {...filter.services}..remove(role))),
+        ),
+      if (filter.sort == 'newest')
+        _ActiveChip(
+          label: 'Mới nhất',
+          onRemove: () => _apply(filter.copyWith(sort: 'rating')),
         ),
     ];
     final countText = provider.isLoading && provider.studios.isEmpty
@@ -271,6 +288,7 @@ class _AllStudiosScreenState extends State<AllStudiosScreen> {
       child: CustomScrollView(
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
@@ -321,6 +339,10 @@ class _AllStudiosScreenState extends State<AllStudiosScreen> {
   static String _capitalize(String s) => s.isEmpty ? s : '${s[0].toUpperCase()}${s.substring(1)}';
 }
 
+String _ratingLabel(double r) => r.toStringAsFixed(r % 1 == 0 ? 0 : 1).replaceAll('.', ',');
+
+String _serviceLabel(String role) => role == 'makeup' ? 'Có trang điểm' : 'Có thợ ảnh';
+
 // =============================================================================
 // Bảng bộ lọc
 // =============================================================================
@@ -335,21 +357,31 @@ class _FilterSheet extends StatefulWidget {
 }
 
 class _FilterSheetState extends State<_FilterSheet> {
+  late String _sort = widget.initial.sort;
   late String? _district = widget.initial.district;
   late int? _maxPrice = widget.initial.maxPrice;
   late double? _minRating = widget.initial.minRating;
+  late final Set<String> _services = {...widget.initial.services};
 
   void _reset() => setState(() {
+        _sort = 'rating';
         _district = null;
         _maxPrice = null;
         _minRating = null;
+        _services.clear();
+      });
+
+  void _toggleService(String role) => setState(() {
+        if (!_services.remove(role)) _services.add(role);
       });
 
   void _done() {
     Navigator.of(context).pop(widget.initial.copyWith(
+      sort: _sort,
       district: () => _district,
       maxPrice: () => _maxPrice,
       minRating: () => _minRating,
+      services: {..._services},
     ));
   }
 
@@ -399,7 +431,26 @@ class _FilterSheetState extends State<_FilterSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const _SheetLabel('KHU VỰC'),
+                    const _SheetLabel('SẮP XẾP'),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _Pill(
+                          label: 'Đánh giá cao',
+                          selected: _sort == 'rating',
+                          onTap: () => setState(() => _sort = 'rating'),
+                        ),
+                        _Pill(
+                          label: 'Mới nhất',
+                          selected: _sort == 'newest',
+                          onTap: () => setState(() => _sort = 'newest'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 22),
+                    const _SheetLabel('KHU VỰC', hint: 'Quận nơi studio đặt địa chỉ'),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
@@ -419,7 +470,10 @@ class _FilterSheetState extends State<_FilterSheet> {
                       ],
                     ),
                     const SizedBox(height: 22),
-                    const _SheetLabel('GIÁ GÓI THUÊ'),
+                    const _SheetLabel(
+                      'GIÁ GÓI THUÊ',
+                      hint: 'Studio có ít nhất 1 gói thuê dưới mức này (chưa gồm phụ thu, dịch vụ thêm)',
+                    ),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
@@ -439,7 +493,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                       ],
                     ),
                     const SizedBox(height: 22),
-                    const _SheetLabel('ĐÁNH GIÁ'),
+                    const _SheetLabel('ĐÁNH GIÁ', hint: 'Điểm trung bình từ khách đã chụp'),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
@@ -452,9 +506,27 @@ class _FilterSheetState extends State<_FilterSheet> {
                         ),
                         for (final r in const [4.0, 4.5])
                           _Pill(
-                            label: 'Từ ${r.toStringAsFixed(r % 1 == 0 ? 0 : 1).replaceAll('.', ',')}★',
+                            label: 'Từ ${_ratingLabel(r)}★',
                             selected: _minRating == r,
                             onTap: () => setState(() => _minRating = r),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 22),
+                    const _SheetLabel(
+                      'DỊCH VỤ KÈM THEO',
+                      hint: 'Studio có thợ để bạn đặt thêm khi chọn lịch (chọn được cả hai)',
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final role in const ['photographer', 'makeup'])
+                          _Pill(
+                            label: _serviceLabel(role),
+                            selected: _services.contains(role),
+                            onTap: () => _toggleService(role),
                           ),
                       ],
                     ),
@@ -617,18 +689,29 @@ class _ActiveChip extends StatelessWidget {
 
 class _SheetLabel extends StatelessWidget {
   final String text;
-  const _SheetLabel(this.text);
+  final String? hint; // giải thích ngắn: lọc theo tiêu chí gì
+
+  const _SheetLabel(this.text, {this.hint});
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 1.2,
-        color: AppColors.textFaint,
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          text,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.2,
+            color: AppColors.textFaint,
+          ),
+        ),
+        if (hint != null) ...[
+          const SizedBox(height: 3),
+          Text(hint!, style: const TextStyle(fontSize: 12, height: 1.4, color: AppColors.textBody)),
+        ],
+      ],
     );
   }
 }
@@ -650,11 +733,12 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(36, 24, 36, 80),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    // Cuộn được: khi bàn phím mở, chiều cao còn lại nhỏ -> không bị tràn (lỗi "BOTTOM OVERFLOWED")
+    return ListView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.fromLTRB(36, 32, 36, 80),
+      children: [
+        Column(
           children: [
             Container(
               width: 72,
@@ -684,7 +768,7 @@ class _EmptyState extends StatelessWidget {
             ],
           ],
         ),
-      ),
+      ],
     );
   }
 }

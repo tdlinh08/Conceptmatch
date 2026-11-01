@@ -8,6 +8,7 @@ import {
 import { BookingStatus, Prisma, StaffRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../conversations/chat.gateway';
+import { NotificationsService, shortTime } from '../notifications/notifications.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { QueryBookingsDto } from './dto/query-bookings.dto';
 import { QueryStudioBookingsDto } from './dto/query-studio-bookings.dto';
@@ -71,6 +72,7 @@ export class BookingsService {
   constructor(
     private prisma: PrismaService,
     private chatGateway: ChatGateway,
+    private notifications: NotificationsService,
   ) {}
 
   async create(userId: string, dto: CreateBookingDto) {
@@ -143,7 +145,7 @@ export class BookingsService {
       addonLines.reduce((sum, l) => sum + l.amount, 0),
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // Advisory lock theo set_id: serialize toàn bộ giao dịch tạo booking trên
       // CÙNG 1 set. Đây là điểm mấu chốt chống double-booking — xem giải thích
       // đầy đủ ở phần đầu file/README, tóm tắt: SELECT FOR UPDATE không đủ vì nó
@@ -215,6 +217,22 @@ export class BookingsService {
       });
       return { ...created, addons: created.addons.map(toAddonLine) };
     });
+
+    // Báo chủ studio có đơn mới
+    const customer = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { full_name: true },
+    });
+    await this.notifications.notify({
+      recipientId: studio.owner_id,
+      type: 'booking_new',
+      title: `Đơn mới tại ${studio.name}`,
+      body:
+        `${customer?.full_name ?? 'Khách'} đặt ${set.name} · ${pkg.name} lúc ${shortTime(startTime)}` +
+        (addons.length ? ` · kèm ${addons.map((a) => a.name).join(', ')}` : ''),
+      refId: result.id,
+    });
+    return result;
   }
 
   async findAllForUser(userId: string, query: QueryBookingsDto) {
@@ -415,6 +433,7 @@ export class BookingsService {
       where: { id },
       include: {
         studio: { select: { owner_id: true, name: true } },
+        set: { select: { name: true } },
         addons: { select: { id: true, role: true } },
       },
     });
@@ -460,6 +479,7 @@ export class BookingsService {
       status: updated.status,
       studio_name: booking.studio.name,
     });
+    await this.notifyCustomer(booking, dto.status, dto.cancel_reason);
 
     return updated;
   }
@@ -538,10 +558,56 @@ export class BookingsService {
     }
   }
 
+  /** Thông báo cho khách khi chủ studio đổi trạng thái đơn. */
+  private async notifyCustomer(
+    booking: { id: string; user_id: string; start_time: Date; studio: { name: string }; set: { name: string } },
+    status: string,
+    reason?: string,
+  ) {
+    const when = `${booking.set.name} lúc ${shortTime(booking.start_time)}`;
+    if (status === 'confirmed') {
+      // Kèm tên thợ vừa được phân công (nếu có dịch vụ thêm)
+      const lines = await this.prisma.bookingAddon.findMany({
+        where: { booking_id: booking.id, staff_id: { not: null } },
+        select: { role: true, staff: { select: { full_name: true } } },
+      });
+      const staffText = lines
+        .map((l) => `${l.role === 'makeup' ? 'Trang điểm' : 'Thợ ảnh'}: ${l.staff?.full_name}`)
+        .join(' · ');
+      await this.notifications.notify({
+        recipientId: booking.user_id,
+        type: 'booking_confirmed',
+        title: `${booking.studio.name} đã xác nhận lịch`,
+        body: `${when}.${staffText ? ` ${staffText}.` : ''} Hẹn gặp bạn!`,
+        refId: booking.id,
+      });
+    } else if (status === 'rejected') {
+      await this.notifications.notify({
+        recipientId: booking.user_id,
+        type: 'booking_rejected',
+        title: `${booking.studio.name} đã từ chối lịch`,
+        body: `${when}. Lý do: ${reason ?? 'không ghi'}`,
+        refId: booking.id,
+      });
+    } else if (status === 'completed') {
+      await this.notifications.notify({
+        recipientId: booking.user_id,
+        type: 'booking_completed',
+        title: 'Buổi chụp đã hoàn thành',
+        body: `Cảm ơn bạn đã chụp tại ${booking.studio.name}. Hãy để lại đánh giá nhé!`,
+        refId: booking.id,
+      });
+    }
+  }
+
   async remove(id: string, userId: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
-      include: { studio: { select: { owner_id: true, name: true } } },
+      include: {
+        studio: { select: { owner_id: true, name: true } },
+        set: { select: { name: true } },
+        user: { select: { full_name: true } },
+      },
     });
     if (!booking) {
       throw new NotFoundException('Booking không tồn tại');
@@ -563,6 +629,13 @@ export class BookingsService {
       booking_id: booking.id,
       status: 'cancelled',
       studio_name: booking.studio.name,
+    });
+    await this.notifications.notify({
+      recipientId: booking.studio.owner_id,
+      type: 'booking_cancelled',
+      title: `Khách huỷ lịch tại ${booking.studio.name}`,
+      body: `${booking.user.full_name} đã huỷ ${booking.set.name} lúc ${shortTime(booking.start_time)}. Khung giờ đã được mở lại.`,
+      refId: booking.id,
     });
 
     return { message: 'Đã huỷ đặt lịch thành công' };

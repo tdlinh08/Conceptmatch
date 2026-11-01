@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/studio_model.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/notifications_provider.dart';
+import '../notifications/notifications_screen.dart';
 import '../../providers/studios_provider.dart';
 import '../studios/all_studios_screen.dart';
 import '../studios/studio_detail_screen.dart';
@@ -31,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
       provider.fetchFeatured(),
       provider.fetchStyleTags(),
       provider.fetchForYou(),
+      context.read<NotificationsProvider>().fetchUnreadCount(),
       // Kéo để làm mới: tải lại cả concept đang xem
       if (_selectedTag != null) provider.fetchConceptPreview(_selectedTag!, force: true),
     ]);
@@ -48,10 +51,14 @@ class _HomeScreenState extends State<HomeScreen> {
   // Điều hướng
   // ---------------------------------------------------------------------------
 
-  void _goToAllStudios({String? styleTag, String? keyword}) {
+  void _goToAllStudios({String? styleTag, String? keyword, bool openFilter = false}) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AllStudiosScreen(initialStyleTag: styleTag, initialKeyword: keyword),
+        builder: (_) => AllStudiosScreen(
+          initialStyleTag: styleTag,
+          initialKeyword: keyword,
+          openFilterOnStart: openFilter,
+        ),
       ),
     );
   }
@@ -69,10 +76,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showComingSoon(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$feature sẽ có ở bước sau')),
+  Future<void> _openNotifications() async {
+    final notifications = context.read<NotificationsProvider>();
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const NotificationsScreen()),
     );
+    notifications.fetchUnreadCount(); // quay lại Home: cập nhật chấm đỏ
   }
 
   // ---------------------------------------------------------------------------
@@ -173,7 +182,8 @@ class _HomeScreenState extends State<HomeScreen> {
           _CircleIconButton(
             icon: Icons.notifications_none_rounded,
             tooltip: 'Thông báo',
-            onPressed: () => _showComingSoon('Thông báo'),
+            badge: context.watch<NotificationsProvider>().unread,
+            onPressed: _openNotifications,
           ),
         ],
       ),
@@ -215,7 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'Tên studio, quận, phong cách…',
+                              'Tên studio, quận, concept…',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(fontSize: 14, color: AppColors.textFaint),
@@ -237,7 +247,7 @@ class _HomeScreenState extends State<HomeScreen> {
               shape: const CircleBorder(),
               child: InkWell(
                 customBorder: const CircleBorder(),
-                onTap: () => _goToAllStudios(),
+                onTap: () => _goToAllStudios(openFilter: true), // mở luôn bảng lọc
                 child: const SizedBox(
                   width: 52,
                   height: 52,
@@ -498,13 +508,19 @@ class _CircleIconButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
+  final int badge; // số chưa đọc; 0 = không hiện
 
-  const _CircleIconButton({required this.icon, required this.tooltip, required this.onPressed});
+  const _CircleIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.badge = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: tooltip,
+      message: badge > 0 ? '$tooltip, $badge chưa đọc' : tooltip, // đọc được bằng trình đọc màn hình
       child: Material(
         color: AppColors.surface,
         shape: const CircleBorder(side: BorderSide(color: AppColors.outline)),
@@ -514,7 +530,38 @@ class _CircleIconButton extends StatelessWidget {
           child: SizedBox(
             width: 44,
             height: 44,
-            child: Icon(icon, size: 22, color: AppColors.textTitle),
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                Icon(icon, size: 22, color: AppColors.textTitle),
+                if (badge > 0)
+                  Positioned(
+                    top: 4,
+                    right: 2,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 18),
+                      height: 18,
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AppColors.statusError,
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(color: AppColors.surface, width: 2),
+                      ),
+                      child: Text(
+                        badge > 99 ? '99+' : '$badge',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          height: 1,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
