@@ -1,19 +1,41 @@
-import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsDateString,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
+/**
+ * Đặt lịch theo GÓI: gói xác định set + studio + thời lượng, nên không cần
+ * gửi studio_id / set_id / end_time. Giá do backend tự tính (src/pricing),
+ * app không gửi giá lên.
+ */
 export class CreateBookingDto {
-  @IsUUID('4', { message: 'studio_id phải là UUID hợp lệ' })
-  studio_id: string;
+  @IsUUID('all', { message: 'package_id không hợp lệ' })
+  package_id: string;
 
-  @IsUUID('4', { message: 'set_id phải là UUID hợp lệ' })
-  set_id: string;
-
-  @IsDateString({}, { message: 'start_time phải theo định dạng ISO 8601, vd: 2026-08-01T08:00:00' })
+  @IsDateString(
+    {},
+    {
+      message:
+        'start_time phải theo định dạng ISO 8601, vd: 2026-11-04T09:30:00',
+    },
+  )
   start_time: string;
 
-  @IsDateString({}, { message: 'end_time phải theo định dạng ISO 8601' })
-  end_time: string;
+  @Type(() => Number)
+  @IsInt({ message: 'num_people phải là số nguyên' })
+  @Min(1)
+  @Max(100)
+  num_people: number;
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   special_note?: string;
 }

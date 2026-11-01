@@ -45,6 +45,14 @@ model Studio {
   phone        String       @db.VarChar(20)
   status       StudioStatus @default(pending)
   reject_reason String?
+  // Giờ hoạt động riêng của từng studio, dạng "HH:mm" ("24:00" = mở đến nửa đêm).
+  open_time    String       @default("08:00") @db.VarChar(5)
+  close_time   String       @default("22:00") @db.VarChar(5)
+  // Phụ thu (%) cộng thêm vào giá gói — thay cho bảng giá 4 ô (pricing_rules) cũ.
+  // Giờ tối: áp dụng khi giờ bắt đầu >= evening_start_time.
+  evening_start_time    String @default("18:00") @db.VarChar(5)
+  evening_surcharge_pct Int    @default(0)
+  weekend_surcharge_pct Int    @default(0)
   avg_rating   Float        @default(0)
   review_count Int          @default(0)
   created_at   DateTime     @default(now())
@@ -53,7 +61,6 @@ model Studio {
   owner         User           @relation(fields: [owner_id], references: [id])
   sets          StudioSet[]
   images        StudioImage[]
-  pricing_rules PricingRule[]
   bookings      Booking[]
   reviews       Review[]
   conversations Conversation[]
@@ -81,11 +88,37 @@ model StudioSet {
   is_active      Boolean  @default(true)
   created_at     DateTime @default(now())
 
-  studio   Studio    @relation(fields: [studio_id], references: [id])
+  studio   Studio          @relation(fields: [studio_id], references: [id])
   bookings Booking[]
+  packages RentalPackage[]
 
   @@index([studio_id])
   @@map("studio_sets")
+}
+
+// Gói thuê của một set (concept). Mỗi set có 1 hoặc nhiều gói: theo giờ, theo buổi, cả ngày...
+// Giá = price + max(0, số người - included_people) * extra_person_fee, sau đó cộng phụ thu
+// giờ tối / cuối tuần của studio. Công thức nằm ở src/pricing/pricing.ts.
+model RentalPackage {
+  id               String   @id @default(uuid())
+  set_id           String
+  name             String   @db.VarChar(100)
+  description      String?
+  duration_minutes Int
+  price            Decimal  @db.Decimal(12, 2)
+  included_people  Int      @default(1)
+  extra_person_fee Decimal  @default(0) @db.Decimal(12, 2)
+  max_people       Int
+  // Không xoá gói đã có người đặt (giữ lịch sử) -> ẩn bằng is_active = false
+  is_active        Boolean  @default(true)
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  set      StudioSet @relation(fields: [set_id], references: [id])
+  bookings Booking[]
+
+  @@index([set_id])
+  @@map("rental_packages")
 }
 
 model StudioImage {
@@ -102,29 +135,22 @@ model StudioImage {
   @@map("studio_images")
 }
 
-model PricingRule {
-  id             String   @id @default(uuid())
-  studio_id      String
-  slot_type      SlotType
-  day_type       DayType
-  price_per_hour Decimal  @db.Decimal(10, 2)
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
-
-  studio Studio @relation(fields: [studio_id], references: [id])
-
-  @@unique([studio_id, slot_type, day_type])
-  @@index([studio_id])
-  @@map("pricing_rules")
-}
-
 model Booking {
   id             String        @id @default(uuid())
   user_id        String
   studio_id      String
   set_id         String
+  // Gói đã đặt. Lưu thêm tên gói tại thời điểm đặt (gói có thể bị sửa/ẩn sau này).
+  // Null với các booking tạo trước khi có mô hình gói (bảng giá theo giờ cũ).
+  package_id     String?
+  package_name   String?       @db.VarChar(100)
+  num_people     Int           @default(1)
   start_time     DateTime
   end_time       DateTime
+  // Chi tiết giá (snapshot lúc đặt): total_amount = base_amount + extra_people_amount + surcharge_amount
+  base_amount         Decimal? @db.Decimal(12, 2)
+  extra_people_amount Decimal? @db.Decimal(12, 2)
+  surcharge_amount    Decimal? @db.Decimal(12, 2)
   total_amount   Decimal       @db.Decimal(12, 2)
   deposit_amount Decimal       @db.Decimal(12, 2)
   status         BookingStatus @default(pending)
@@ -135,8 +161,9 @@ model Booking {
 
   user   User      @relation(fields: [user_id], references: [id])
   studio Studio    @relation(fields: [studio_id], references: [id])
-  set    StudioSet @relation(fields: [set_id], references: [id])
-  review Review?
+  set     StudioSet      @relation(fields: [set_id], references: [id])
+  package RentalPackage? @relation(fields: [package_id], references: [id])
+  review  Review?
 
   @@index([user_id])
   @@index([studio_id])
@@ -271,17 +298,6 @@ enum StudioStatus {
   pending
   active
   rejected
-}
-
-enum SlotType {
-  normal
-  golden
-}
-
-enum DayType {
-  weekday
-  weekend
-  holiday
 }
 
 enum BookingStatus {

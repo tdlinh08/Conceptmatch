@@ -5,18 +5,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { BookingStatus, DayType, Prisma, SlotType } from '@prisma/client';
+import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../conversations/chat.gateway';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { QueryBookingsDto } from './dto/query-bookings.dto';
 import { QueryStudioBookingsDto } from './dto/query-studio-bookings.dto';
 import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
-
-const OPENING_HOUR = 8;
-const GOLDEN_HOUR = 18;
-const CLOSING_HOUR = 22;
-const DEPOSIT_RATIO = 0.3;
+import { assertValidStart, PricingError, quotePrice } from '../pricing/pricing';
 
 const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ['pending', 'confirmed', 'checked_in'];
 
@@ -36,24 +32,44 @@ export class BookingsService {
   ) {}
 
   async create(userId: string, dto: CreateBookingDto) {
-    const startTime = new Date(dto.start_time);
-    const endTime = new Date(dto.end_time);
-    this.validateTimeRange(startTime, endTime);
-
-    const set = await this.prisma.studioSet.findFirst({
-      where: { id: dto.set_id, studio_id: dto.studio_id, is_active: true },
+    // Gói -> set -> studio: một truy vấn lấy đủ thông tin để kiểm tra và tính giá
+    const pkg = await this.prisma.rentalPackage.findFirst({
+      where: { id: dto.package_id, is_active: true, set: { is_active: true, studio: { status: 'active' } } },
+      include: { set: { include: { studio: true } } },
     });
-    if (!set) {
-      throw new NotFoundException('Studio hoặc Set không tồn tại');
+    if (!pkg) {
+      throw new NotFoundException('Gói thuê không tồn tại hoặc đã ngừng nhận đặt');
     }
+    const set = pkg.set;
+    const studio = set.studio;
 
-    const studio = await this.prisma.studio.findUnique({ where: { id: dto.studio_id } });
-    if (!studio || studio.status !== 'active') {
-      throw new NotFoundException('Studio hoặc Set không tồn tại');
+    // Giờ bắt đầu hợp lệ + giờ kết thúc = bắt đầu + thời lượng gói; giá do backend tự tính
+    // (KHÔNG nhận giá từ app — tránh bị sửa request để đặt giá rẻ).
+    const startTime = new Date(dto.start_time);
+    let endTime: Date;
+    let quote: ReturnType<typeof quotePrice>;
+    try {
+      endTime = assertValidStart({
+        start: startTime,
+        openTime: studio.open_time,
+        closeTime: studio.close_time,
+        durationMinutes: pkg.duration_minutes,
+      });
+      quote = quotePrice(
+        {
+          price: Number(pkg.price),
+          included_people: pkg.included_people,
+          extra_person_fee: Number(pkg.extra_person_fee),
+          max_people: pkg.max_people,
+        },
+        studio,
+        dto.num_people,
+        startTime,
+      );
+    } catch (err) {
+      if (err instanceof PricingError) throw new BadRequestException(err.message);
+      throw err;
     }
-
-    const total_amount = await this.calculateTotalAmount(dto.studio_id, startTime, endTime);
-    const deposit_amount = Math.round(total_amount * DEPOSIT_RATIO);
 
     return this.prisma.$transaction(async (tx) => {
       // Advisory lock theo set_id: serialize toàn bộ giao dịch tạo booking trên
@@ -65,29 +81,35 @@ export class BookingsService {
       // buộc transaction thứ 2 phải đợi transaction thứ 1 COMMIT/ROLLBACK xong
       // mới được tiếp tục — đảm bảo lúc kiểm tra trùng lịch luôn thấy dữ liệu
       // mới nhất. Lock tự động giải phóng khi transaction kết thúc.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dto.set_id})::bigint)`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${set.id})::bigint)`;
 
       const overlapping = await tx.booking.findFirst({
         where: {
-          set_id: dto.set_id,
+          set_id: set.id,
           status: { in: ACTIVE_BOOKING_STATUSES },
           start_time: { lt: endTime },
           end_time: { gt: startTime },
         },
       });
       if (overlapping) {
-        throw new ConflictException('Khung giờ đã bị đặt (double-booking)');
+        throw new ConflictException('Khung giờ này vừa có người đặt, vui lòng chọn giờ khác');
       }
 
       return tx.booking.create({
         data: {
           user_id: userId,
-          studio_id: dto.studio_id,
-          set_id: dto.set_id,
+          studio_id: studio.id,
+          set_id: set.id,
+          package_id: pkg.id,
+          package_name: pkg.name,
+          num_people: dto.num_people,
           start_time: startTime,
           end_time: endTime,
-          total_amount,
-          deposit_amount,
+          base_amount: quote.base_amount,
+          extra_people_amount: quote.extra_people_amount,
+          surcharge_amount: quote.surcharge_amount,
+          total_amount: quote.total_amount,
+          deposit_amount: quote.deposit_amount,
           special_note: dto.special_note,
         },
       });
@@ -128,6 +150,8 @@ export class BookingsService {
         // has_review để app biết đơn đã hoàn thành nào còn được đánh giá.
         cover_image: b.studio.images[0]?.url ?? null,
         set_name: b.set.name,
+        package_name: b.package_name,
+        num_people: b.num_people,
         start_time: b.start_time,
         end_time: b.end_time,
         total_amount: b.total_amount,
@@ -177,6 +201,8 @@ export class BookingsService {
         studio_name: b.studio.name,
         set_id: b.set.id,
         set_name: b.set.name,
+        package_name: b.package_name,
+        num_people: b.num_people,
         customer: b.user,
         start_time: b.start_time,
         end_time: b.end_time,
@@ -283,60 +309,5 @@ export class BookingsService {
     });
 
     return { message: 'Đã huỷ đặt lịch thành công' };
-  }
-
-  // ---- Helper ----
-
-  private validateTimeRange(start: Date, end: Date) {
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      throw new BadRequestException('start_time hoặc end_time không hợp lệ');
-    }
-    if (start >= end) {
-      throw new BadRequestException('start_time phải trước end_time');
-    }
-    if (start < new Date()) {
-      throw new BadRequestException('Không thể đặt lịch cho thời điểm trong quá khứ');
-    }
-    if (start.toDateString() !== end.toDateString()) {
-      throw new BadRequestException('Booking không được vắt qua nhiều ngày');
-    }
-
-    const startMinutes = start.getHours() * 60 + start.getMinutes();
-    const endMinutes = end.getHours() * 60 + end.getMinutes();
-    if (startMinutes < OPENING_HOUR * 60 || endMinutes > CLOSING_HOUR * 60) {
-      throw new BadRequestException(
-        `Studio chỉ nhận đặt lịch trong khung giờ ${OPENING_HOUR}h-${CLOSING_HOUR}h`,
-      );
-    }
-  }
-
-  private async calculateTotalAmount(
-    studioId: string,
-    start: Date,
-    end: Date,
-  ): Promise<number> {
-    const dayType: DayType = [0, 6].includes(start.getDay()) ? 'weekend' : 'weekday';
-    const pricingRules = await this.prisma.pricingRule.findMany({
-      where: { studio_id: studioId, day_type: dayType },
-    });
-
-    const priceOf = (slotType: SlotType): number => {
-      const rule = pricingRules.find((r) => r.slot_type === slotType);
-      if (!rule) {
-        throw new BadRequestException(
-          `Studio chưa cấu hình giá cho khung giờ ${slotType}/${dayType}`,
-        );
-      }
-      return Number(rule.price_per_hour);
-    };
-
-    let total = 0;
-    const cursor = new Date(start);
-    while (cursor < end) {
-      const slotType: SlotType = cursor.getHours() < GOLDEN_HOUR ? 'normal' : 'golden';
-      total += priceOf(slotType);
-      cursor.setHours(cursor.getHours() + 1);
-    }
-    return total;
   }
 }

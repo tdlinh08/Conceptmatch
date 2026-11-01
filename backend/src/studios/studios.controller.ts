@@ -21,7 +21,8 @@ import { UpdateStudioDto } from './dto/update-studio.dto';
 import { QueryStudiosDto } from './dto/query-studios.dto';
 import { CreateStudioSetDto } from './dto/create-studio-set.dto';
 import { AvailabilityQueryDto } from './dto/availability-query.dto';
-import { UpsertPricingRuleDto } from './dto/upsert-pricing-rule.dto';
+import { CreatePackageDto } from './dto/create-package.dto';
+import { UpdatePackageDto } from './dto/update-package.dto';
 import { UpdateStudioSetDto } from './dto/update-studio-set.dto';
 import { deleteLocalMedia, imageUploadOptions, publicUrl } from '../media/media.util';
 import { Public } from '../auth/decorators/public.decorator';
@@ -222,32 +223,29 @@ export class StudiosController {
     return this.studiosService.findReviews(id, Number(page) || 1, Number(limit) || 10);
   }
 
-  // --- Pricing Rules: KHÔNG có trong API Contract gốc, tự bổ sung vì SRS (S-03)
-  // và bảng CSDL Pricing_Rules đã có nhưng thiếu endpoint. Ghi chú trong báo cáo.
+  // --- Gói thuê của từng set (thay cho /pricing-rules cũ). Khách xem gói qua
+  // GET /studios/:id và GET /studios/:id/sets (mỗi set kèm danh sách packages).
 
-  @Public()
-  @Get(':id/pricing-rules')
-  findPricingRules(@Param('id', ParseUUIDPipe) id: string) {
-    return this.studiosService.findPricingRules(id);
+  @Roles('studio_owner')
+  @Post(':id/sets/:setId/packages')
+  createPackage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('setId', ParseUUIDPipe) setId: string,
+    @CurrentUser('id') ownerId: string,
+    @Body() dto: CreatePackageDto,
+  ) {
+    return this.studiosService.createPackage(id, setId, ownerId, dto);
   }
 
   @Roles('studio_owner')
-  @Post(':id/pricing-rules')
-  upsertPricingRule(
+  @Put(':id/sets/:setId/packages/:packageId')
+  updatePackage(
     @Param('id', ParseUUIDPipe) id: string,
+    @Param('setId', ParseUUIDPipe) setId: string,
+    @Param('packageId', ParseUUIDPipe) packageId: string,
     @CurrentUser('id') ownerId: string,
-    @Body() dto: UpsertPricingRuleDto,
+    @Body() dto: UpdatePackageDto,
   ) {
-    return this.studiosService.upsertPricingRule(id, ownerId, dto);
-  }
-
-  @Roles('studio_owner')
-  @Delete(':id/pricing-rules/:ruleId')
-  deletePricingRule(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('ruleId', ParseUUIDPipe) ruleId: string,
-    @CurrentUser('id') ownerId: string,
-  ) {
-    return this.studiosService.deletePricingRule(id, ownerId, ruleId);
+    return this.studiosService.updatePackage(id, setId, packageId, ownerId, dto);
   }
 }

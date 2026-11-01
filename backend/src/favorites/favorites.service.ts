@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { STUDIO_SUMMARY_SELECT, toStudioSummary } from '../studios/studio-summary';
 
 @Injectable()
 export class FavoritesService {
@@ -40,35 +41,10 @@ export class FavoritesService {
     const favorites = await this.prisma.favorite.findMany({
       where: { user_id: userId },
       orderBy: { created_at: 'desc' },
-      include: {
-        studio: {
-          select: {
-            id: true,
-            name: true,
-            district: true,
-            avg_rating: true,
-            images: { where: { is_cover: true }, take: 1, select: { url: true } },
-            // Giá rẻ nhất -> thẻ studio ở tab "Đã lưu" hiện "Từ ...đ / giờ"
-            // giống hệt thẻ ở Home (cùng dạng dữ liệu với StudiosService.toSummary).
-            pricing_rules: {
-              orderBy: { price_per_hour: 'asc' },
-              take: 1,
-              select: { price_per_hour: true },
-            },
-          },
-        },
-      },
+      include: { studio: { select: STUDIO_SUMMARY_SELECT } },
     });
 
-    return favorites.map((f) => ({
-      id: f.studio.id,
-      name: f.studio.name,
-      district: f.studio.district,
-      avg_rating: f.studio.avg_rating,
-      cover_image: f.studio.images[0]?.url ?? null,
-      min_price: f.studio.pricing_rules[0]
-        ? Number(f.studio.pricing_rules[0].price_per_hour)
-        : null,
-    }));
+    // Cùng dạng dữ liệu với thẻ studio ở Home (min_price = gói rẻ nhất)
+    return favorites.map((f) => toStudioSummary(f.studio));
   }
 }

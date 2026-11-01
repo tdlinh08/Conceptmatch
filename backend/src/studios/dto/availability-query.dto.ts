@@ -1,12 +1,26 @@
-import { IsDateString, IsOptional, IsUUID } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsDateString,
+  IsInt,
+  IsOptional,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class AvailabilityQueryDto {
   @IsDateString({}, { message: 'date phải theo định dạng YYYY-MM-DD' })
   date: string;
 
-  // Mở rộng so với API Contract gốc — xem giải thích trong studios.service.ts.
-  // Nếu không truyền, mặc định lấy set đầu tiên đang hoạt động (is_active=true).
+  // Gói quyết định cả set (lịch riêng) lẫn thời lượng cần trống.
+  @IsUUID('all', { message: 'package_id không hợp lệ' })
+  package_id: string;
+
+  // Để hiện giá đúng theo số người. Không gửi = số người đã gồm trong giá gói.
   @IsOptional()
-  @IsUUID()
-  set_id?: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  num_people?: number;
 }

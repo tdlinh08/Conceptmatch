@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -66,6 +67,16 @@ export class AdminService {
     }
     if (studio.status !== 'pending') {
       throw new ConflictException('Studio đã được duyệt trước đó');
+    }
+
+    // Studio phải bán được ít nhất 1 gói, nếu không khách vào xem mà không đặt được lịch
+    const bookableSets = await this.prisma.studioSet.count({
+      where: { studio_id: studioId, is_active: true, packages: { some: { is_active: true } } },
+    });
+    if (bookableSets === 0) {
+      throw new BadRequestException(
+        'Studio chưa có set nào có gói thuê đang bán — chưa thể duyệt',
+      );
     }
 
     await this.prisma.studio.update({

@@ -4,23 +4,29 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { BookingStatus, DayType, Prisma, SlotType } from '@prisma/client';
+import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateStudioDto } from './dto/create-studio.dto';
 import { UpdateStudioDto } from './dto/update-studio.dto';
 import { QueryStudiosDto } from './dto/query-studios.dto';
 import { CreateStudioSetDto } from './dto/create-studio-set.dto';
 import { AvailabilityQueryDto } from './dto/availability-query.dto';
-import { UpsertPricingRuleDto } from './dto/upsert-pricing-rule.dto';
+import { CreatePackageDto } from './dto/create-package.dto';
+import { UpdatePackageDto } from './dto/update-package.dto';
+import { STUDIO_SUMMARY_SELECT, toStudioSummary } from './studio-summary';
+import {
+  listStartTimes,
+  PricingError,
+  quotePrice,
+  SLOT_STEP_MINUTES,
+  toHHmm,
+  toMinutes,
+} from '../pricing/pricing';
 import { UpdateStudioSetDto } from './dto/update-studio-set.dto';
 import { AiService } from '../ai/ai.service';
 import { deleteLocalMedia } from '../media/media.util';
 
-// Khung giờ hoạt động cố định theo đúng SRS: 8h-18h (normal), 18h-22h (golden).
-// Nếu sau này cần cấu hình linh hoạt theo từng studio, tách ra thành field DB riêng.
-const OPENING_HOUR = 8;
-const GOLDEN_HOUR = 18;
-const CLOSING_HOUR = 22;
+// Khung giờ hoạt động: lấy theo từng studio (open_time / close_time), không còn cố định 8h–22h.
 
 // Trạng thái booking coi là "đang giữ chỗ", chặn slot đó không cho đặt tiếp
 const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ['pending', 'confirmed', 'checked_in'];
@@ -36,23 +42,48 @@ const SET_SELECT = {
   is_active: true,
 } satisfies Prisma.StudioSetSelect;
 
-// Các trường dùng chung cho thẻ studio (danh sách, nổi bật, gợi ý) — khai báo
-// MỘT lần để 3 API trả về cùng một dạng dữ liệu, thêm trường chỉ cần sửa ở đây.
-const STUDIO_SUMMARY_SELECT = {
+// Gói thuê trả về cho app (giá Decimal -> number ở toPackage)
+const PACKAGE_SELECT = {
   id: true,
   name: true,
-  district: true,
-  avg_rating: true,
-  images: { where: { is_cover: true }, take: 1, select: { url: true } },
-  // Lấy đúng 1 dòng giá rẻ nhất -> hiển thị "Từ ...đ / giờ" trên thẻ
-  pricing_rules: {
-    orderBy: { price_per_hour: 'asc' },
-    take: 1,
-    select: { price_per_hour: true },
-  },
-} satisfies Prisma.StudioSelect;
+  description: true,
+  duration_minutes: true,
+  price: true,
+  included_people: true,
+  extra_person_fee: true,
+  max_people: true,
+  is_active: true,
+} satisfies Prisma.RentalPackageSelect;
 
-type StudioSummaryRow = Prisma.StudioGetPayload<{ select: typeof STUDIO_SUMMARY_SELECT }>;
+type PackageRow = Prisma.RentalPackageGetPayload<{ select: typeof PACKAGE_SELECT }>;
+
+const toPackage = (p: PackageRow) => ({
+  ...p,
+  price: Number(p.price),
+  extra_person_fee: Number(p.extra_person_fee),
+});
+
+// Set kèm gói đang bán (dành cho khách)
+const PUBLIC_SET_SELECT = {
+  ...SET_SELECT,
+  packages: {
+    where: { is_active: true },
+    orderBy: { price: 'asc' },
+    select: PACKAGE_SELECT,
+  },
+} satisfies Prisma.StudioSetSelect;
+
+// Set kèm MỌI gói, kể cả gói đã ẩn (dành cho chủ studio)
+const OWNER_SET_SELECT = {
+  ...SET_SELECT,
+  packages: { orderBy: { created_at: 'asc' }, select: PACKAGE_SELECT },
+} satisfies Prisma.StudioSetSelect;
+
+type SetWithPackages = Prisma.StudioSetGetPayload<{ select: typeof PUBLIC_SET_SELECT }>;
+const toSetWithPackages = (set: SetWithPackages) => ({
+  ...set,
+  packages: set.packages.map(toPackage),
+});
 
 @Injectable()
 export class StudiosService {
@@ -70,18 +101,31 @@ export class StudiosService {
         name: { contains: keyword, mode: 'insensitive' },
       }),
       ...(district && { district }),
-      ...(style_tag && {
-        sets: { some: { style_tag, is_active: true } },
-      }),
       ...(min_rating !== undefined && { avg_rating: { gte: min_rating } }),
-      ...((min_price !== undefined || max_price !== undefined) && {
-        pricing_rules: {
-          some: {
-            ...(min_price !== undefined && { price_per_hour: { gte: min_price } }),
-            ...(max_price !== undefined && { price_per_hour: { lte: max_price } }),
-          },
-        },
-      }),
+      AND: [
+        ...(style_tag ? [{ sets: { some: { style_tag, is_active: true } } }] : []),
+        // Lọc theo giá: có ít nhất 1 gói đang bán nằm trong khoảng giá
+        ...(min_price !== undefined || max_price !== undefined
+          ? [
+              {
+                sets: {
+                  some: {
+                    is_active: true,
+                    packages: {
+                      some: {
+                        is_active: true,
+                        price: {
+                          ...(min_price !== undefined && { gte: min_price }),
+                          ...(max_price !== undefined && { lte: max_price }),
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            ]
+          : []),
+      ],
     };
 
     const [data, total] = await this.prisma.$transaction([
@@ -96,7 +140,7 @@ export class StudiosService {
     ]);
 
     return {
-      data: data.map((s) => this.toSummary(s)),
+      data: data.map((s) => toStudioSummary(s)),
       total,
       page,
       limit,
@@ -110,8 +154,7 @@ export class StudiosService {
       where: { id, status: 'active' },
       include: {
         images: { orderBy: { sort_order: 'asc' } },
-        sets: { where: { is_active: true } },
-        pricing_rules: true,
+        sets: { where: { is_active: true }, orderBy: { created_at: 'asc' }, select: PUBLIC_SET_SELECT },
       },
     });
 
@@ -119,10 +162,11 @@ export class StudiosService {
       throw new NotFoundException('Studio không tồn tại');
     }
 
-    return studio;
+    return { ...studio, sets: studio.sets.map(toSetWithPackages) };
   }
 
   async create(ownerId: string, dto: CreateStudioDto) {
+    this.assertOpeningHours(dto.open_time ?? '08:00', dto.close_time ?? '22:00');
     return this.prisma.studio.create({
       data: {
         ...dto,
@@ -134,6 +178,7 @@ export class StudiosService {
 
   async update(id: string, ownerId: string, dto: UpdateStudioDto) {
     const studio = await this.ensureOwnership(id, ownerId);
+    this.assertOpeningHours(dto.open_time ?? studio.open_time, dto.close_time ?? studio.close_time);
 
     return this.prisma.studio.update({
       where: { id },
@@ -171,7 +216,7 @@ export class StudiosService {
     });
 
     return studios.map((s) => ({
-      ...this.toSummary(s),
+      ...toStudioSummary(s),
       address: s.address,
       status: s.status,
       reject_reason: s.reject_reason,
@@ -185,14 +230,14 @@ export class StudiosService {
   /** Chi tiết studio của chính chủ: gồm cả set đang ẩn, trạng thái duyệt, lý do từ chối. */
   async findMineOne(id: string, ownerId: string) {
     await this.ensureOwnership(id, ownerId);
-    return this.prisma.studio.findUnique({
+    const studio = await this.prisma.studio.findUniqueOrThrow({
       where: { id },
       include: {
         images: { orderBy: { sort_order: 'asc' } },
-        sets: { orderBy: { created_at: 'asc' }, select: SET_SELECT },
-        pricing_rules: true,
+        sets: { orderBy: { created_at: 'asc' }, select: OWNER_SET_SELECT },
       },
     });
+    return { ...studio, sets: studio.sets.map(toSetWithPackages) };
   }
 
   /** Thêm nhiều ảnh studio. Studio chưa có ảnh bìa -> ảnh đầu tiên thành ảnh bìa. */
@@ -296,11 +341,12 @@ export class StudiosService {
   async findSets(studioId: string) {
     await this.ensureStudioExists(studioId);
 
-    return this.prisma.studioSet.findMany({
+    const sets = await this.prisma.studioSet.findMany({
       where: { studio_id: studioId, is_active: true },
       orderBy: { created_at: 'asc' },
-      select: SET_SELECT,
+      select: PUBLIC_SET_SELECT,
     });
+    return sets.map(toSetWithPackages);
   }
 
   async createSet(studioId: string, ownerId: string, dto: CreateStudioSetDto) {
@@ -342,112 +388,121 @@ export class StudiosService {
   }
 
   /**
-   * Tính danh sách slot trống trong 1 ngày cho 1 set cụ thể của studio.
-   *
-   * LƯU Ý THIẾT KẾ (khác biệt so với API Contract gốc):
-   * Booking gắn với set_id (mỗi set có lịch riêng), nhưng API Contract chỉ nhận
-   * `date` mà không có `set_id`. Nếu không phân biệt set, 2 khách đặt 2 set khác
-   * nhau cùng giờ sẽ bị tính nhầm là trùng lịch (double-booking giả).
-   * -> Thêm set_id là query param TÙY CHỌN. Không truyền thì mặc định lấy
-   *    set đầu tiên đang active của studio.
+   * Giờ bắt đầu còn trống trong 1 ngày cho 1 GÓI cụ thể (gói -> set -> lịch riêng của set).
+   * Mỗi giờ bắt đầu kèm giá đã tính đủ số người + phụ thu giờ tối / cuối tuần,
+   * dùng đúng công thức với POST /bookings (src/pricing/pricing.ts).
    */
   async getAvailability(studioId: string, query: AvailabilityQueryDto) {
-    await this.ensureStudioExists(studioId);
+    const pkg = await this.prisma.rentalPackage.findFirst({
+      where: {
+        id: query.package_id,
+        is_active: true,
+        set: { is_active: true, studio_id: studioId },
+      },
+      include: { set: { include: { studio: true } } },
+    });
+    if (!pkg) {
+      throw new NotFoundException('Gói thuê không tồn tại trong studio này');
+    }
+    const studio = pkg.set.studio;
 
-    const targetSet = await this.resolveTargetSet(studioId, query.set_id);
     const date = new Date(`${query.date}T00:00:00`);
     if (Number.isNaN(date.getTime())) {
       throw new BadRequestException('date không hợp lệ');
     }
-
-    const dayType: DayType = [0, 6].includes(date.getDay()) ? 'weekend' : 'weekday';
-
-    const pricingRules = await this.prisma.pricingRule.findMany({
-      where: { studio_id: studioId, day_type: dayType },
-    });
-    const priceOf = (slotType: SlotType): number | null => {
-      const rule = pricingRules.find((r) => r.slot_type === slotType);
-      return rule ? Number(rule.price_per_hour) : null;
-    };
-
-    const dayStart = new Date(date);
     const dayEnd = new Date(date);
     dayEnd.setDate(dayEnd.getDate() + 1);
+    const numPeople = query.num_people ?? Math.min(pkg.included_people, pkg.max_people);
 
-    // Lấy toàn bộ booking đang giữ chỗ của set này trong ngày, để loại trừ slot trùng
-    const existingBookings = await this.prisma.booking.findMany({
+    // Booking đang giữ chỗ của SET này trong ngày (mọi gói của set dùng chung một lịch)
+    const busy = await this.prisma.booking.findMany({
       where: {
-        set_id: targetSet.id,
+        set_id: pkg.set_id,
         status: { in: ACTIVE_BOOKING_STATUSES },
         start_time: { lt: dayEnd },
-        end_time: { gt: dayStart },
+        end_time: { gt: date },
       },
       select: { start_time: true, end_time: true },
     });
 
-    const availableSlots: { start: string; end: string; price: number | null }[] = [];
-
-    for (let hour = OPENING_HOUR; hour < CLOSING_HOUR; hour++) {
-      const slotStart = new Date(date);
-      slotStart.setHours(hour, 0, 0, 0);
-      const slotEnd = new Date(date);
-      slotEnd.setHours(hour + 1, 0, 0, 0);
-
-      const isOverlapping = existingBookings.some(
-        (b) => b.start_time < slotEnd && b.end_time > slotStart,
-      );
-      if (isOverlapping) continue;
-
-      const slotType: SlotType = hour < GOLDEN_HOUR ? 'normal' : 'golden';
-      availableSlots.push({
-        start: `${String(hour).padStart(2, '0')}:00`,
-        end: `${String(hour + 1).padStart(2, '0')}:00`,
-        price: priceOf(slotType),
+    try {
+      const starts = listStartTimes({
+        date,
+        openTime: studio.open_time,
+        closeTime: studio.close_time,
+        durationMinutes: pkg.duration_minutes,
+        busy: busy.map((b) => ({ start: b.start_time, end: b.end_time })),
       });
+
+      const pricing = { ...toPackage(pkg) };
+      const hhmm = (d: Date) => toHHmm(d.getHours() * 60 + d.getMinutes());
+
+      return {
+        date: query.date,
+        set_id: pkg.set_id,
+        package_id: pkg.id,
+        duration_minutes: pkg.duration_minutes,
+        num_people: numPeople,
+        open_time: studio.open_time,
+        close_time: studio.close_time,
+        step_minutes: SLOT_STEP_MINUTES,
+        available_slots: starts.map(({ start, end }) => {
+          const q = quotePrice(pricing, studio, numPeople, start);
+          return {
+            start: hhmm(start),
+            end: hhmm(end),
+            price: q.total_amount,
+            surcharge_pct: q.surcharge_pct,
+          };
+        }),
+      };
+    } catch (err) {
+      if (err instanceof PricingError) throw new BadRequestException(err.message);
+      throw err;
     }
-
-    return {
-      date: query.date,
-      set_id: targetSet.id,
-      available_slots: availableSlots,
-    };
   }
 
-  async findPricingRules(studioId: string) {
-    await this.ensureStudioExists(studioId);
-    return this.prisma.pricingRule.findMany({ where: { studio_id: studioId } });
-  }
+  // ===========================================================================
+  // Gói thuê (thay cho bảng giá 4 ô cũ)
+  // ===========================================================================
 
-  async upsertPricingRule(studioId: string, ownerId: string, dto: UpsertPricingRuleDto) {
-    await this.ensureOwnership(studioId, ownerId);
+  async createPackage(studioId: string, setId: string, ownerId: string, dto: CreatePackageDto) {
+    const studio = await this.ensureOwnership(studioId, ownerId);
+    const set = await this.ensureSet(studioId, setId);
+    this.assertPackage(dto, set.capacity, studio);
 
-    // upsert theo unique constraint [studio_id, slot_type, day_type]:
-    // đã tồn tại tổ hợp này -> cập nhật giá; chưa có -> tạo mới.
-    return this.prisma.pricingRule.upsert({
-      where: {
-        studio_id_slot_type_day_type: {
-          studio_id: studioId,
-          slot_type: dto.slot_type,
-          day_type: dto.day_type,
-        },
-      },
-      create: { ...dto, studio_id: studioId },
-      update: { price_per_hour: dto.price_per_hour },
+    const pkg = await this.prisma.rentalPackage.create({
+      data: { ...dto, extra_person_fee: dto.extra_person_fee ?? 0, set_id: setId },
+      select: PACKAGE_SELECT,
     });
+    return toPackage(pkg);
   }
 
-  async deletePricingRule(studioId: string, ownerId: string, ruleId: string) {
-    await this.ensureOwnership(studioId, ownerId);
-
-    const rule = await this.prisma.pricingRule.findFirst({
-      where: { id: ruleId, studio_id: studioId },
+  async updatePackage(
+    studioId: string,
+    setId: string,
+    packageId: string,
+    ownerId: string,
+    dto: UpdatePackageDto,
+  ) {
+    const studio = await this.ensureOwnership(studioId, ownerId);
+    const set = await this.ensureSet(studioId, setId);
+    const current = await this.prisma.rentalPackage.findFirst({
+      where: { id: packageId, set_id: setId },
+      select: PACKAGE_SELECT,
     });
-    if (!rule) {
-      throw new NotFoundException('Quy tắc giá không tồn tại trong studio này');
-    }
+    if (!current) throw new NotFoundException('Gói thuê không tồn tại trong set này');
 
-    await this.prisma.pricingRule.delete({ where: { id: ruleId } });
-    return { message: 'Đã xoá quy tắc giá' };
+    // Kiểm tra trên giá trị SAU khi sửa (vd chỉ gửi max_people vẫn phải >= included_people cũ)
+    const merged = { ...toPackage(current), ...dto };
+    this.assertPackage(merged, set.capacity, studio);
+
+    const pkg = await this.prisma.rentalPackage.update({
+      where: { id: packageId },
+      data: dto,
+      select: PACKAGE_SELECT,
+    });
+    return toPackage(pkg);
   }
 
   async findFeatured(limit = 10) {
@@ -460,7 +515,7 @@ export class StudiosService {
       take: limit,
       select: STUDIO_SUMMARY_SELECT,
     });
-    return studios.map((s) => this.toSummary(s));
+    return studios.map((s) => toStudioSummary(s));
   }
 
   async findStyleTags() {
@@ -548,7 +603,7 @@ export class StudiosService {
       const extra = fallback.filter(
         (s) => !existingIds.has(s.id) && !viewedStudioIds.includes(s.id),
       );
-      const combined = [...studios.map((s) => this.toSummary(s)), ...extra];
+      const combined = [...studios.map((s) => toStudioSummary(s)), ...extra];
 
       // Đã loại trừ hết những gì user từng xem mà vẫn không còn gì để gợi ý
       // (thường gặp khi hệ thống còn ít studio) -> thà hiển thị lại danh
@@ -560,23 +615,10 @@ export class StudiosService {
       return combined.slice(0, limit);
     }
 
-    return studios.map((s) => this.toSummary(s));
+    return studios.map((s) => toStudioSummary(s));
   }
 
   // ---- Helper dùng nội bộ ----
-
-  private toSummary(s: StudioSummaryRow) {
-    return {
-      id: s.id,
-      name: s.name,
-      district: s.district,
-      avg_rating: s.avg_rating,
-      cover_image: s.images[0]?.url ?? null,
-      // Giá thấp nhất trong bảng giá (Decimal -> number). Studio chưa khai báo
-      // bảng giá -> null, phía app sẽ ẩn dòng giá.
-      min_price: s.pricing_rules[0] ? Number(s.pricing_rules[0].price_per_hour) : null,
-    };
-  }
 
   /** Dùng cho controller khi chỉ cần kiểm tra quyền (vd: tải ảnh set). */
   async assertOwner(studioId: string, ownerId: string): Promise<void> {
@@ -614,26 +656,51 @@ export class StudiosService {
     return studio;
   }
 
-  private async resolveTargetSet(studioId: string, setId?: string) {
-    if (setId) {
-      const set = await this.prisma.studioSet.findFirst({
-        where: { id: setId, studio_id: studioId },
-      });
-      if (!set) {
-        throw new NotFoundException('Bối cảnh (set) không tồn tại trong studio này');
-      }
-      return set;
-    }
-
-    const firstActiveSet = await this.prisma.studioSet.findFirst({
-      where: { studio_id: studioId, is_active: true },
-      orderBy: { created_at: 'asc' },
+  private async ensureSet(studioId: string, setId: string) {
+    const set = await this.prisma.studioSet.findFirst({
+      where: { id: setId, studio_id: studioId },
+      select: { id: true, capacity: true },
     });
-    if (!firstActiveSet) {
+    if (!set) throw new NotFoundException('Bối cảnh (set) không tồn tại trong studio này');
+    return set;
+  }
+
+  /** Giờ mở cửa hợp lệ: đóng sau mở ít nhất 1 tiếng, không vắt qua nửa đêm. */
+  private assertOpeningHours(openTime: string, closeTime: string) {
+    try {
+      if (toMinutes(closeTime) - toMinutes(openTime) < 60) {
+        throw new BadRequestException(
+          'Giờ đóng cửa phải sau giờ mở cửa ít nhất 1 tiếng (không hỗ trợ mở qua nửa đêm; mở 24/7 thì nhập 00:00 – 24:00)',
+        );
+      }
+    } catch (err) {
+      if (err instanceof PricingError) throw new BadRequestException(err.message);
+      throw err;
+    }
+  }
+
+  /** Ràng buộc chéo giữa các trường của gói — class-validator không kiểm được. */
+  private assertPackage(
+    pkg: { duration_minutes: number; included_people: number; max_people: number },
+    setCapacity: number,
+    studio: { open_time: string; close_time: string },
+  ) {
+    if (pkg.duration_minutes % SLOT_STEP_MINUTES !== 0) {
+      throw new BadRequestException(`Thời lượng gói phải là bội số của ${SLOT_STEP_MINUTES} phút`);
+    }
+    const window = toMinutes(studio.close_time) - toMinutes(studio.open_time);
+    if (pkg.duration_minutes > window) {
       throw new BadRequestException(
-        'Studio chưa có bối cảnh (set) nào đang hoạt động để kiểm tra lịch trống',
+        `Gói dài ${pkg.duration_minutes} phút vượt giờ mở cửa của studio (${studio.open_time}–${studio.close_time})`,
       );
     }
-    return firstActiveSet;
+    if (pkg.max_people < pkg.included_people) {
+      throw new BadRequestException('Số người tối đa phải >= số người đã gồm trong giá');
+    }
+    if (pkg.max_people > setCapacity) {
+      throw new BadRequestException(
+        `Số người tối đa (${pkg.max_people}) vượt sức chứa của set (${setCapacity}) — sửa sức chứa set trước`,
+      );
+    }
   }
 }
