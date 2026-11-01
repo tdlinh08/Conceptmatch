@@ -4,8 +4,9 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/booking_models.dart';
 import '../../providers/bookings_provider.dart';
-import '../studios/studio_detail_screen.dart';
+import 'booking_detail_screen.dart';
 import 'review_sheet.dart';
+import 'widgets/booking_status_badge.dart';
 
 /// Tab "Lịch hẹn": các đơn của người dùng, chia 3 nhóm Sắp tới / Đã qua / Đã huỷ.
 class MyBookingsScreen extends StatefulWidget {
@@ -97,9 +98,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     }
   }
 
-  void _openStudio(BookingSummary booking) {
+  void _openDetail(BookingSummary booking) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => StudioDetailScreen(studioId: booking.studioId)),
+      MaterialPageRoute(builder: (_) => BookingDetailScreen(bookingId: booking.id)),
     );
   }
 
@@ -191,7 +192,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                       final b = items[i];
                       return _BookingCard(
                         booking: b,
-                        onTap: () => _openStudio(b),
+                        onTap: () => _openDetail(b),
                         onCancel: b.canCancel ? () => _confirmCancel(b) : null,
                         onReview: b.canReview ? () => _openReview(b) : null,
                       );
@@ -338,7 +339,7 @@ class _BookingCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            _StatusBadge(status: b.status),
+                            BookingStatusBadge(status: b.status),
                           ],
                         ),
                         const SizedBox(height: 2),
@@ -490,37 +491,6 @@ class _IconLine extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  const _StatusBadge({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final (String label, Color color) = switch (status) {
-      'pending' => ('Chờ xác nhận', AppColors.statusWarning),
-      'confirmed' => ('Đã xác nhận', AppColors.statusSuccess),
-      'checked_in' => ('Đã check-in', AppColors.accentText),
-      'completed' => ('Hoàn thành', AppColors.textBody),
-      'cancelled' => ('Đã huỷ', AppColors.textFaint),
-      'rejected' => ('Bị từ chối', AppColors.statusError),
-      'no_show' => ('Vắng mặt', AppColors.statusError),
-      _ => (status, AppColors.textBody),
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: color),
-      ),
     );
   }
 }

@@ -57,6 +57,16 @@ class BookingsProvider extends ChangeNotifier {
     }
   }
 
+  /// Chi tiết 1 đơn cho màn "Chi tiết lịch hẹn" (GET /bookings/:id).
+  Future<BookingDetail> fetchBookingDetail(String bookingId) async {
+    try {
+      final response = await _apiClient.dio.get('/bookings/$bookingId');
+      return BookingDetail.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw _toBookingException(e);
+    }
+  }
+
   /// Khách huỷ đơn đang "Chờ xác nhận" (DELETE /bookings/:id).
   Future<void> cancelBooking(String bookingId) async {
     try {

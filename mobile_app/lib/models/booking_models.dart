@@ -246,3 +246,102 @@ class BookingSummary {
     );
   }
 }
+
+/// Chi tiết 1 đơn (GET /bookings/:id) cho màn "Chi tiết lịch hẹn".
+class BookingDetail {
+  final String id;
+  final String status;
+  final DateTime startTime;
+  final DateTime endTime;
+  final String? packageName;
+  final int numPeople;
+  final String? specialNote;
+  final String? cancelReason;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  // Giá (snapshot lúc đặt); null với đơn đặt trước khi có mô hình gói
+  final double? baseAmount;
+  final double? extraPeopleAmount;
+  final double? surchargeAmount;
+  final double totalAmount;
+  final double depositAmount;
+
+  final String studioId;
+  final String studioName;
+  final String studioAddress;
+  final String studioDistrict;
+  final String studioPhone;
+  final String? coverImage;
+  final String setName;
+
+  final List<BookingAddonLine> addons;
+  final int? reviewStars;
+  final String? reviewComment;
+
+  BookingDetail({
+    required this.id,
+    required this.status,
+    required this.startTime,
+    required this.endTime,
+    this.packageName,
+    required this.numPeople,
+    this.specialNote,
+    this.cancelReason,
+    required this.createdAt,
+    required this.updatedAt,
+    this.baseAmount,
+    this.extraPeopleAmount,
+    this.surchargeAmount,
+    required this.totalAmount,
+    required this.depositAmount,
+    required this.studioId,
+    required this.studioName,
+    required this.studioAddress,
+    required this.studioDistrict,
+    required this.studioPhone,
+    this.coverImage,
+    required this.setName,
+    required this.addons,
+    this.reviewStars,
+    this.reviewComment,
+  });
+
+  bool get hasReview => reviewStars != null;
+
+  /// 8 ký tự đầu của mã đơn, viết hoa — đủ để khách đọc cho studio khi cần.
+  String get shortCode => id.replaceAll('-', '').substring(0, 8).toUpperCase();
+
+  factory BookingDetail.fromJson(Map<String, dynamic> json) {
+    final studio = json['studio'] as Map<String, dynamic>;
+    final set = json['set'] as Map<String, dynamic>;
+    final review = json['review'] as Map<String, dynamic>?;
+    return BookingDetail(
+      id: json['id'] as String,
+      status: json['status'] as String,
+      startTime: DateTime.parse(json['start_time'] as String).toLocal(),
+      endTime: DateTime.parse(json['end_time'] as String).toLocal(),
+      packageName: json['package_name'] as String?,
+      numPeople: json['num_people'] as int? ?? 1,
+      specialNote: json['special_note'] as String?,
+      cancelReason: json['cancel_reason'] as String?,
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
+      updatedAt: DateTime.parse(json['updated_at'] as String).toLocal(),
+      baseAmount: Formatters.moneyOrNull(json['base_amount']),
+      extraPeopleAmount: Formatters.moneyOrNull(json['extra_people_amount']),
+      surchargeAmount: Formatters.moneyOrNull(json['surcharge_amount']),
+      totalAmount: Formatters.money(json['total_amount']),
+      depositAmount: Formatters.money(json['deposit_amount']),
+      studioId: studio['id'] as String,
+      studioName: studio['name'] as String,
+      studioAddress: studio['address'] as String,
+      studioDistrict: studio['district'] as String,
+      studioPhone: studio['phone'] as String,
+      coverImage: ApiConstants.mediaUrl(studio['cover_image'] as String?),
+      setName: set['name'] as String,
+      addons: BookingAddonLine.listFrom(json['addons']),
+      reviewStars: review?['stars'] as int?,
+      reviewComment: review?['comment'] as String?,
+    );
+  }
+}

@@ -28,7 +28,11 @@ import {
   roleBusyRanges,
 } from '../studios/staff-rules';
 
-const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ['pending', 'confirmed', 'checked_in'];
+const ACTIVE_BOOKING_STATUSES: BookingStatus[] = [
+  'pending',
+  'confirmed',
+  'checked_in',
+];
 
 // State machine: Studio Owner chỉ được đi đúng các bước này, không được nhảy cóc
 // (vd: không thể "completed" thẳng từ "pending" mà chưa qua "confirmed" -> "checked_in").
@@ -47,10 +51,14 @@ const BOOKING_ADDON_SELECT = {
   unit_price: true,
   quantity: true,
   amount: true,
-  staff: { select: { id: true, full_name: true, avatar_url: true, phone: true } },
+  staff: {
+    select: { id: true, full_name: true, avatar_url: true, phone: true },
+  },
 } satisfies Prisma.BookingAddonSelect;
 
-type BookingAddonRow = Prisma.BookingAddonGetPayload<{ select: typeof BOOKING_ADDON_SELECT }>;
+type BookingAddonRow = Prisma.BookingAddonGetPayload<{
+  select: typeof BOOKING_ADDON_SELECT;
+}>;
 const toAddonLine = (l: BookingAddonRow) => ({
   ...l,
   unit_price: Number(l.unit_price),
@@ -68,11 +76,17 @@ export class BookingsService {
   async create(userId: string, dto: CreateBookingDto) {
     // Gói -> set -> studio: một truy vấn lấy đủ thông tin để kiểm tra và tính giá
     const pkg = await this.prisma.rentalPackage.findFirst({
-      where: { id: dto.package_id, is_active: true, set: { is_active: true, studio: { status: 'active' } } },
+      where: {
+        id: dto.package_id,
+        is_active: true,
+        set: { is_active: true, studio: { status: 'active' } },
+      },
       include: { set: { include: { studio: true } } },
     });
     if (!pkg) {
-      throw new NotFoundException('Gói thuê không tồn tại hoặc đã ngừng nhận đặt');
+      throw new NotFoundException(
+        'Gói thuê không tồn tại hoặc đã ngừng nhận đặt',
+      );
     }
     const set = pkg.set;
     const studio = set.studio;
@@ -101,14 +115,19 @@ export class BookingsService {
         startTime,
       );
     } catch (err) {
-      if (err instanceof PricingError) throw new BadRequestException(err.message);
+      if (err instanceof PricingError)
+        throw new BadRequestException(err.message);
       throw err;
     }
 
     // Dịch vụ thêm: snapshot tên + giá + số lượng vào đơn; tổng = phòng + dịch vụ
     const addons = await resolveAddons(this.prisma, studio.id, dto.addon_ids);
     const addonLines = addons.map((a) => {
-      const line = addonLine({ price: Number(a.price), unit: a.unit }, pkg.duration_minutes, dto.num_people);
+      const line = addonLine(
+        { price: Number(a.price), unit: a.unit },
+        pkg.duration_minutes,
+        dto.num_people,
+      );
       return {
         addon_id: a.id,
         name: a.name,
@@ -152,12 +171,20 @@ export class BookingsService {
         },
       });
       if (overlapping) {
-        throw new ConflictException('Khung giờ này vừa có người đặt, vui lòng chọn giờ khác');
+        throw new ConflictException(
+          'Khung giờ này vừa có người đặt, vui lòng chọn giờ khác',
+        );
       }
 
       for (const a of addons) {
         const capacity = await activeStaffCount(tx, studio.id, a.role);
-        const busy = await roleBusyRanges(tx, studio.id, a.role, startTime, endTime);
+        const busy = await roleBusyRanges(
+          tx,
+          studio.id,
+          a.role,
+          startTime,
+          endTime,
+        );
         if (!hasFreeStaff(startTime, endTime, capacity, busy)) {
           throw new ConflictException(
             `Khung giờ này đã hết ${ROLE_LABEL[a.role]} rảnh, vui lòng chọn giờ khác hoặc bỏ dịch vụ`,
@@ -205,7 +232,11 @@ export class BookingsService {
             select: {
               id: true,
               name: true,
-              images: { where: { is_cover: true }, take: 1, select: { url: true } },
+              images: {
+                where: { is_cover: true },
+                take: 1,
+                select: { url: true },
+              },
             },
           },
           set: { select: { name: true } },
@@ -253,7 +284,8 @@ export class BookingsService {
       ...(studio_id && { studio_id }),
       ...(status && { status }),
     };
-    const upcomingFirst = status !== undefined && ACTIVE_BOOKING_STATUSES.includes(status);
+    const upcomingFirst =
+      status !== undefined && ACTIVE_BOOKING_STATUSES.includes(status);
 
     const [data, total] = await this.prisma.$transaction([
       this.prisma.booking.findMany({
@@ -264,7 +296,14 @@ export class BookingsService {
         include: {
           studio: { select: { id: true, name: true } },
           set: { select: { id: true, name: true } },
-          user: { select: { id: true, full_name: true, email: true, avatar_url: true } },
+          user: {
+            select: {
+              id: true,
+              full_name: true,
+              email: true,
+              avatar_url: true,
+            },
+          },
           addons: { select: BOOKING_ADDON_SELECT },
         },
       }),
@@ -295,13 +334,34 @@ export class BookingsService {
     };
   }
 
+  /**
+   * Chi tiết 1 đơn cho màn "Chi tiết lịch hẹn" (khách) / "Chi tiết đơn" (chủ studio):
+   * đủ lịch chụp, chi tiết giá, dịch vụ + thợ phụ trách, liên hệ studio, đánh giá.
+   */
   async findOne(id: string, currentUser: { id: string }) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
       include: {
-        studio: { select: { id: true, name: true, address: true, owner_id: true } },
-        set: { select: { id: true, name: true } },
-        user: { select: { id: true, full_name: true } },
+        studio: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            district: true,
+            phone: true,
+            owner_id: true,
+            images: {
+              where: { is_cover: true },
+              take: 1,
+              select: { url: true },
+            },
+          },
+        },
+        set: { select: { id: true, name: true, avatar_url: true } },
+        user: {
+          select: { id: true, full_name: true, email: true, avatar_url: true },
+        },
+        review: { select: { stars: true, comment: true, created_at: true } },
         addons: { select: BOOKING_ADDON_SELECT },
       },
     });
@@ -315,7 +375,39 @@ export class BookingsService {
       throw new ForbiddenException('Không có quyền xem booking này');
     }
 
-    return { ...booking, addons: booking.addons.map(toAddonLine) };
+    const money = (v: Prisma.Decimal | null) => (v === null ? null : Number(v));
+    return {
+      id: booking.id,
+      status: booking.status,
+      start_time: booking.start_time,
+      end_time: booking.end_time,
+      package_name: booking.package_name,
+      num_people: booking.num_people,
+      special_note: booking.special_note,
+      cancel_reason: booking.cancel_reason,
+      created_at: booking.created_at,
+      updated_at: booking.updated_at,
+      base_amount: money(booking.base_amount),
+      extra_people_amount: money(booking.extra_people_amount),
+      surcharge_amount: money(booking.surcharge_amount),
+      addons_amount: money(booking.addons_amount),
+      total_amount: Number(booking.total_amount),
+      deposit_amount: Number(booking.deposit_amount),
+      // Chọn từng trường, KHÔNG trả owner_id ra ngoài
+      studio: {
+        id: booking.studio.id,
+        name: booking.studio.name,
+        address: booking.studio.address,
+        district: booking.studio.district,
+        phone: booking.studio.phone,
+        cover_image: booking.studio.images[0]?.url ?? null,
+      },
+      set: booking.set,
+      customer: booking.user,
+      addons: booking.addons.map(toAddonLine),
+      review: booking.review,
+      has_review: booking.review !== null,
+    };
   }
 
   async updateStatus(id: string, ownerId: string, dto: UpdateBookingStatusDto) {
@@ -341,10 +433,13 @@ export class BookingsService {
     }
 
     if (dto.status === 'rejected' && !dto.cancel_reason) {
-      throw new BadRequestException('Cần nhập cancel_reason khi từ chối booking');
+      throw new BadRequestException(
+        'Cần nhập cancel_reason khi từ chối booking',
+      );
     }
 
-    const needsAssignment = dto.status === 'confirmed' && booking.addons.length > 0;
+    const needsAssignment =
+      dto.status === 'confirmed' && booking.addons.length > 0;
     const updated = await this.prisma.$transaction(async (tx) => {
       if (needsAssignment) {
         await this.assignStaff(tx, booking, dto.staff_assignments ?? []);
