@@ -10,7 +10,8 @@ class Formatters {
       if (i > 0 && (digits.length - i) % 3 == 0) buffer.write('.');
       buffer.write(digits[i]);
     }
-    return '${amount < 0 ? '-' : ''}${buffer}đ';
+    final sign = amount < 0 ? '-' : '';
+    return '$sign${buffer.toString()}đ';
   }
 
   /// Thời lượng gói: 60 -> "1 giờ", 90 -> "1 giờ 30 phút", 30 -> "30 phút".

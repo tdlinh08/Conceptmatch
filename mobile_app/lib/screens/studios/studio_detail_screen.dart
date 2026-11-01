@@ -9,6 +9,8 @@ import '../../models/studio_detail_model.dart';
 import '../../models/review_model.dart';
 import '../../models/studio_model.dart';
 import '../bookings/booking_screen.dart';
+import 'reviews_screen.dart';
+import 'widgets/review_card.dart';
 
 class StudioDetailScreen extends StatefulWidget {
   final String studioId;
@@ -465,8 +467,24 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
               'Chưa có đánh giá nào. Đặt lịch và trải nghiệm để là người đầu tiên đánh giá.',
               style: TextStyle(fontSize: 14, height: 1.5, color: AppColors.textBody),
             )
-          else
-            ..._reviews.map((r) => _ReviewCard(review: r)),
+          else ...[
+            ..._reviews.map((r) => ReviewCard(review: r)),
+            // Màn chi tiết chỉ hiện 3 đánh giá mới nhất -> có nút xem toàn bộ
+            if (detail.reviewCount > _reviews.length)
+              OutlinedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ReviewsScreen(
+                      studioId: detail.id,
+                      studioName: detail.name,
+                      avgRating: detail.avgRating,
+                      reviewCount: detail.reviewCount,
+                    ),
+                  ),
+                ),
+                child: Text('Xem tất cả ${detail.reviewCount} đánh giá'),
+              ),
+          ],
         ],
       ),
     );
@@ -1054,93 +1072,6 @@ class _OpeningInfo extends StatelessWidget {
                 ],
               ),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ReviewCard extends StatelessWidget {
-  final ReviewModel review;
-
-  const _ReviewCard({required this.review});
-
-  @override
-  Widget build(BuildContext context) {
-    final initial = review.userName.trim().isEmpty
-        ? '?'
-        : review.userName.trim().split(' ').last[0].toUpperCase();
-    final d = review.createdAt.toLocal();
-    final date =
-        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: AppColors.surfacePink,
-                child: Text(
-                  initial,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.accentText,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      review.userName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textTitle,
-                      ),
-                    ),
-                    Text(date, style: const TextStyle(fontSize: 12, color: AppColors.textFaint)),
-                  ],
-                ),
-              ),
-              Semantics(
-                label: '${review.stars} trên 5 sao',
-                excludeSemantics: true,
-                child: Row(
-                  children: List.generate(
-                    5,
-                    (i) => Icon(
-                      i < review.stars ? Icons.star_rounded : Icons.star_outline_rounded,
-                      size: 16,
-                      color: AppColors.ratingGold,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (review.comment != null && review.comment!.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              review.comment!.trim(),
-              style: const TextStyle(fontSize: 14, height: 1.5, color: AppColors.textBody),
-            ),
-          ],
         ],
       ),
     );

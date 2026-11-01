@@ -52,32 +52,6 @@ class AppColors {
   static const Color statusWarning = Color(0xFF8A5D0E); // chữ "giờ vàng", cảnh báo — 5.8 : 1
   static const Color ratingGold = Color(0xFFB57D10); // sao trên nền sáng
   static const Color ratingGoldOnImage = Color(0xFFFFC857); // sao trên ảnh tối
-
-  // ---------------------------------------------------------------------------
-  // 6. TÊN CŨ — giữ tạm để các màn chưa làm lại vẫn biên dịch và hiển thị
-  //    đúng tông sáng. Khi làm lại từng màn, đổi sang tên mới ở trên.
-  //    Làm xong tất cả các màn thì xoá cả khối này.
-  // ---------------------------------------------------------------------------
-  static const Color cardBase = surface;
-  static const Color surfaceVariant = surfaceMuted;
-  static const Color surfaceElevated = surface;
-  static const Color border = nightPlum; // code cũ luôn dùng kèm độ mờ (0.3–0.6)
-  static const Color textPrimary = textTitle;
-  static const Color textSecondary = textBody;
-  static const Color textMuted = textFaint;
-  static const Color navUnselected = textFaint;
-  static const Color neutralTitle = textTitle;
-  static const Color neutralBody = textBody;
-  static const Color neutralFaint = textFaint;
-  static const Color accent = primary; // code cũ dùng accent cho cả nền nút lẫn chữ nhấn
-  static const Color onAccent = onPrimary;
-  static const Color accentGradientStart = moonPink;
-  static const Color accentGradientEnd = dustyMauve;
-  static const Color accentPeach = surfacePink;
-  static const Color accentMint = dustyMauve;
-  static const Color iceGlow = moonPink;
-  static const Color error = statusError;
-  static const Color success = statusSuccess;
 }
 
 class AppTheme {

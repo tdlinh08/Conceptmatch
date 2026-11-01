@@ -39,7 +39,7 @@ class ConceptMatchApp extends StatelessWidget {
             child: Stack(
               children: [
                 const AppBackground(),
-                if (child != null) child,
+                ?child, // chỉ thêm khi khác null
               ],
             ),
           );

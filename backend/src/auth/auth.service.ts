@@ -31,8 +31,9 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+    // So khớp không phân biệt hoa/thường để không tạo 2 tài khoản "A@x.com" và "a@x.com"
+    const existing = await this.prisma.user.findFirst({
+      where: { email: { equals: dto.email, mode: 'insensitive' } },
     });
     if (existing) {
       throw new ConflictException('Email đã tồn tại');
@@ -58,8 +59,9 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+    // Không phân biệt hoa/thường: tài khoản cũ có thể đã lưu email có chữ hoa
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: dto.email, mode: 'insensitive' } },
     });
 
     // Không phân biệt "email không tồn tại" và "sai mật khẩu" trong response

@@ -1,3 +1,8 @@
+// MÚI GIỜ: backend tính giờ mở cửa, phụ thu giờ tối, giờ trong thông báo theo giờ MÁY CHỦ.
+// Máy Windows ở VN thì đúng sẵn, nhưng chạy trong Docker (mặc định UTC) sẽ lệch 7 tiếng
+// -> cố định giờ Việt Nam. Phải đặt TRƯỚC khi tạo bất kỳ Date nào.
+process.env.TZ = process.env.APP_TZ || 'Asia/Ho_Chi_Minh'; // đổi múi giờ bằng biến APP_TZ
+
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
@@ -23,6 +28,8 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port, '0.0.0.0');
-  console.log(`ConceptMatch backend đang chạy tại http://localhost:${port}/api/v1`);
+  console.log(
+    `ConceptMatch backend đang chạy tại http://localhost:${port}/api/v1`,
+  );
 }
 bootstrap();

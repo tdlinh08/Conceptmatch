@@ -19,6 +19,8 @@
 
 export const SLOT_STEP_MINUTES = 30; // giờ bắt đầu cách nhau 30 phút
 export const DEPOSIT_RATIO = 0.3;
+// Chỉ nhận đặt lịch trong N ngày tới (app hiện chọn được 14 ngày) — chặn đặt bừa năm sau
+export const MAX_DAYS_AHEAD = 60;
 const ROUND_TO = 1000;
 
 export interface PackagePricing {
@@ -224,8 +226,14 @@ export function assertValidStart(params: {
   const { start, durationMinutes } = params;
   if (Number.isNaN(start.getTime()))
     throw new PricingError('start_time không hợp lệ');
-  if (start <= (params.now ?? new Date())) {
+  const now = params.now ?? new Date();
+  if (start <= now) {
     throw new PricingError('Không thể đặt lịch cho thời điểm trong quá khứ');
+  }
+  if (start.getTime() - now.getTime() > MAX_DAYS_AHEAD * 24 * 3600 * 1000) {
+    throw new PricingError(
+      `Chỉ nhận đặt lịch trong vòng ${MAX_DAYS_AHEAD} ngày tới`,
+    );
   }
   if (start.getSeconds() !== 0 || start.getMilliseconds() !== 0) {
     throw new PricingError('Giờ bắt đầu phải tròn phút');

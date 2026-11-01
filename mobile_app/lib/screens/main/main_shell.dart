@@ -1,7 +1,11 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
+import '../../providers/bookings_provider.dart';
+import '../../providers/favorites_provider.dart';
+import '../../providers/notifications_provider.dart';
 import '../home/home_screen.dart';
 import '../favorites/favorites_screen.dart';
 import '../bookings/my_bookings_screen.dart';
@@ -24,6 +28,21 @@ class _MainShellState extends State<MainShell> {
     ProfileScreen(),
   ];
 
+  /// IndexedStack giữ nguyên các tab (không dựng lại) -> chủ động tải lại dữ liệu
+  /// khi người dùng chuyển sang, để thấy ngay trạng thái mới (vd studio vừa xác nhận đơn).
+  void _onTabSelected(int index) {
+    if (index == _currentIndex) return;
+    setState(() => _currentIndex = index);
+    switch (index) {
+      case 0:
+        context.read<NotificationsProvider>().fetchUnreadCount();
+      case 1:
+        context.read<FavoritesProvider>().fetchFavorites();
+      case 2:
+        context.read<BookingsProvider>().fetchMyBookings();
+    }
+  }
+
   void _openAiSearch() {
     // Màn AI Visual Search sẽ làm ở bước sau — khi đó thay dòng dưới bằng:
     // Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AiSearchScreen()));
@@ -43,7 +62,7 @@ class _MainShellState extends State<MainShell> {
       body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: _FloatingNavBar(
         currentIndex: _currentIndex,
-        onTabSelected: (index) => setState(() => _currentIndex = index),
+        onTabSelected: _onTabSelected,
         onAiPressed: _openAiSearch,
       ),
     );

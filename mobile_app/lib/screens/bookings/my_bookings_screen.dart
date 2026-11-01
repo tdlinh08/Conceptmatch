@@ -339,7 +339,7 @@ class _BookingCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            BookingStatusBadge(status: b.status),
+                            BookingStatusBadge(status: b.displayStatus),
                           ],
                         ),
                         const SizedBox(height: 2),

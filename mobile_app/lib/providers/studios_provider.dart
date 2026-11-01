@@ -256,4 +256,22 @@ class StudiosProvider extends ChangeNotifier {
       return [];
     }
   }
+
+  /// Một trang đánh giá cho màn "Tất cả đánh giá".
+  /// Ném lỗi ra ngoài để màn hình hiện thông báo + nút thử lại.
+  Future<({List<ReviewModel> items, int total})> fetchReviewsPage(
+    String studioId, {
+    int page = 1,
+    int limit = 10,
+  }) async {
+    final response = await _apiClient.dio.get(
+      '/studios/$studioId/reviews',
+      queryParameters: {'page': page, 'limit': limit},
+    );
+    final data = response.data as Map<String, dynamic>;
+    final items = (data['data'] as List)
+        .map((e) => ReviewModel.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return (items: items, total: data['total'] as int);
+  }
 }

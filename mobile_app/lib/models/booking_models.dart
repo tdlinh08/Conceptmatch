@@ -177,11 +177,21 @@ class BookingSummary {
     required this.createdAt,
   });
 
-  /// Còn hiệu lực, chưa diễn ra xong.
-  bool get isUpcoming => const ['pending', 'confirmed', 'checked_in'].contains(status);
+  bool get _isActive => const ['pending', 'confirmed', 'checked_in'].contains(status);
 
-  /// Đã kết thúc (hoàn thành hoặc khách vắng mặt).
-  bool get isFinished => const ['completed', 'no_show'].contains(status);
+  /// Đơn còn hiệu lực nhưng ĐÃ QUA giờ kết thúc (studio chưa duyệt / chưa cập nhật trạng thái).
+  /// Không để ở tab "Sắp tới" nữa vì gây hiểu nhầm là buổi chụp sắp diễn ra.
+  bool get isOverdue => _isActive && endTime.isBefore(DateTime.now());
+
+  /// Còn hiệu lực và chưa kết thúc.
+  bool get isUpcoming => _isActive && !isOverdue;
+
+  /// Đã qua: hoàn thành, vắng mặt, hoặc quá giờ mà studio chưa cập nhật.
+  bool get isFinished => const ['completed', 'no_show'].contains(status) || isOverdue;
+
+  /// Trạng thái để HIỂN THỊ: đơn quá giờ có nhãn riêng (xem bookingStatusInfo).
+  String get displayStatus =>
+      isOverdue ? (status == 'pending' ? 'expired' : 'awaiting_update') : status;
 
   /// Bị huỷ (khách tự huỷ hoặc studio từ chối).
   bool get isCancelled => const ['cancelled', 'rejected'].contains(status);

@@ -199,7 +199,8 @@ class AuthProvider extends ChangeNotifier {
       return msg.toString();
     }
     if (e.type == DioExceptionType.connectionTimeout ||
-        e.type == DioExceptionType.receiveTimeout) {
+        e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.connectionError) { // server tắt / sai IP / khác Wi-Fi
       return 'Không thể kết nối tới server. Kiểm tra lại mạng hoặc địa chỉ IP trong api_constants.dart.';
     }
     return 'Đã có lỗi xảy ra, vui lòng thử lại.';

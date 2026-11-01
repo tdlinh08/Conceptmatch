@@ -1,30 +1,38 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
+// Kiểm thử đơn vị cho các hàm định dạng dùng chung (không cần máy chủ).
+// Chạy: flutter test
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:mobile_app/main.dart';
+import 'package:mobile_app/core/utils/formatters.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('Formatters.vnd', () {
+    test('ngăn cách hàng nghìn bằng dấu chấm', () {
+      expect(Formatters.vnd(250000), '250.000đ');
+      expect(Formatters.vnd(1250000), '1.250.000đ');
+      expect(Formatters.vnd(0), '0đ');
+      expect(Formatters.vnd(999), '999đ');
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    test('số âm và số lẻ được làm tròn', () {
+      expect(Formatters.vnd(-50000), '-50.000đ');
+      expect(Formatters.vnd(104999.6), '105.000đ');
+    });
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  group('Formatters.duration', () {
+    test('đổi phút sang giờ/phút', () {
+      expect(Formatters.duration(30), '30 phút');
+      expect(Formatters.duration(60), '1 giờ');
+      expect(Formatters.duration(90), '1 giờ 30 phút');
+      expect(Formatters.duration(240), '4 giờ');
+    });
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  group('Formatters.money', () {
+    test('nhận cả số lẫn chuỗi (Decimal của Prisma)', () {
+      expect(Formatters.money(350000), 350000.0);
+      expect(Formatters.money('350000'), 350000.0);
+      expect(Formatters.money('105000.50'), 105000.5);
+      expect(Formatters.moneyOrNull(null), isNull);
+    });
   });
 }

@@ -372,7 +372,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton(
-                    onPressed: () => _openReview(summary!), // canReview đã kiểm tra khác null
+                    onPressed: () => _openReview(summary), // canReview đã kiểm tra khác null
                     child: const Text('Đánh giá'),
                   ),
                 ),
@@ -458,12 +458,17 @@ class _StatusSection extends StatelessWidget {
     }
 
     final current = _steps.indexOf(status);
-    final hint = switch (status) {
+    final overdue = detail.endTime.isBefore(DateTime.now());
+    final hint = overdue && status == 'pending'
+        ? 'Đã qua giờ chụp nhưng studio chưa xác nhận. Bạn có thể huỷ đơn này hoặc liên hệ studio.'
+        : overdue && status != 'completed'
+            ? 'Buổi chụp đã qua giờ. Studio sẽ cập nhật trạng thái hoàn thành sau.'
+            : switch (status) {
       'pending' => 'Studio đang xem yêu cầu của bạn. Bạn vẫn có thể huỷ khi lịch chưa được xác nhận.',
       'confirmed' => 'Lịch đã được giữ. Hãy đến đúng giờ và mang theo mã đơn.',
       'checked_in' => 'Bạn đã đến studio. Chúc buổi chụp vui vẻ!',
       _ => 'Buổi chụp đã hoàn thành. Cảm ơn bạn đã sử dụng ConceptMatch.',
-    };
+              };
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),

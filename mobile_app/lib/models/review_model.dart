@@ -1,3 +1,5 @@
+import '../core/constants/api_constants.dart';
+
 class ReviewModel {
   final String id;
   final int stars;
@@ -23,7 +25,8 @@ class ReviewModel {
       comment: json['comment'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
       userName: user['full_name'] as String,
-      userAvatar: user['avatar_url'] as String?,
+      // Ảnh đại diện upload lên máy chủ là đường dẫn tương đối -> ghép thành link đầy đủ
+      userAvatar: ApiConstants.mediaUrl(user['avatar_url'] as String?),
     );
   }
 }

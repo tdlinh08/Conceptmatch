@@ -10,6 +10,9 @@ import '../../../core/theme/app_theme.dart';
       'cancelled' => ('Đã huỷ', AppColors.textFaint),
       'rejected' => ('Bị từ chối', AppColors.statusError),
       'no_show' => ('Vắng mặt', AppColors.statusError),
+      // Hai nhãn chỉ có ở app (đơn còn hiệu lực nhưng đã qua giờ):
+      'expired' => ('Quá hạn', AppColors.textFaint), // studio chưa xác nhận
+      'awaiting_update' => ('Chờ studio cập nhật', AppColors.statusWarning),
       _ => (status, AppColors.textBody),
     };
 

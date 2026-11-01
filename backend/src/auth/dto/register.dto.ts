@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsIn,
@@ -6,6 +7,10 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+// Email không phân biệt hoa/thường + bỏ khoảng trắng thừa (bàn phím điện thoại hay tự viết hoa chữ đầu)
+const normalizeEmail = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim().toLowerCase() : value;
 
 // Vai trò được TỰ đăng ký. "admin" cố ý không có ở đây: tài khoản quản trị
 // chỉ tạo bằng seed / trực tiếp trong DB, không ai tự nâng quyền được.
@@ -16,6 +21,7 @@ export class RegisterDto {
   @MaxLength(100)
   full_name: string;
 
+  @Transform(normalizeEmail)
   @IsEmail({}, { message: 'Email không hợp lệ' })
   email: string;
 

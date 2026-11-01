@@ -168,6 +168,11 @@ describe('assertValidStart', () => {
       PricingError,
     );
   });
+  it('từ chối đặt quá 60 ngày tới', () => {
+    expect(() =>
+      assertValidStart({ ...opts, start: new Date(2027, 1, 1, 9) }),
+    ).toThrow('60 ngày');
+  });
   it('từ chối thời điểm quá khứ', () => {
     expect(() =>
       assertValidStart({ ...opts, start: wed(9), now: wed(10) }),
