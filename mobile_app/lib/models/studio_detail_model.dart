@@ -116,6 +116,7 @@ class StudioSetModel {
   final String? styleTag;
   final int capacity;
   final String avatarUrl; // đã ghép thành địa chỉ đầy đủ
+  final List<String> images; // album ảnh của set (địa chỉ đầy đủ), có thể rỗng
   final List<RentalPackageModel> packages; // backend đã sắp theo giá tăng dần
 
   StudioSetModel({
@@ -125,8 +126,15 @@ class StudioSetModel {
     this.styleTag,
     required this.capacity,
     required this.avatarUrl,
+    this.images = const [],
     required this.packages,
   });
+
+  /// Ảnh để xem ở màn chi tiết bối cảnh: ảnh đại diện trước, rồi tới album.
+  List<String> get gallery => [
+        if (avatarUrl.isNotEmpty) avatarUrl,
+        ...images.where((u) => u != avatarUrl),
+      ];
 
   /// Set chưa có gói nào thì chưa đặt được.
   bool get isBookable => packages.isNotEmpty;
@@ -139,6 +147,10 @@ class StudioSetModel {
       styleTag: json['style_tag'] as String?,
       capacity: json['capacity'] as int,
       avatarUrl: ApiConstants.mediaUrl(json['avatar_url'] as String) ?? '',
+      images: ((json['images'] as List?) ?? const [])
+          .map((e) => ApiConstants.mediaUrl((e as Map<String, dynamic>)['url'] as String))
+          .whereType<String>()
+          .toList(),
       packages: ((json['packages'] as List?) ?? const [])
           .map((e) => RentalPackageModel.fromJson(e as Map<String, dynamic>))
           .toList(),

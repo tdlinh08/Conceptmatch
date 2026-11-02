@@ -96,9 +96,25 @@ model StudioSet {
   studio   Studio          @relation(fields: [studio_id], references: [id])
   bookings Booking[]
   packages RentalPackage[]
+  images   SetImage[]
 
   @@index([studio_id])
   @@map("studio_sets")
+}
+
+// Album ảnh của 1 bối cảnh (set) — khách xem trước khi đặt. Tối đa 10 ảnh/set.
+// avatar_url của set vẫn là ảnh đại diện (thẻ set + ảnh để AI tìm kiếm).
+model SetImage {
+  id         String   @id @default(uuid())
+  set_id     String
+  url        String
+  sort_order Int      @default(0)
+  created_at DateTime @default(now())
+
+  set StudioSet @relation(fields: [set_id], references: [id], onDelete: Cascade)
+
+  @@index([set_id])
+  @@map("set_images")
 }
 
 // Gói thuê của một set (concept). Mỗi set có 1 hoặc nhiều gói: theo giờ, theo buổi, cả ngày...

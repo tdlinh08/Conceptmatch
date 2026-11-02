@@ -46,7 +46,11 @@ const SET_SELECT = {
   capacity: true,
   avatar_url: true,
   is_active: true,
+  images: { orderBy: { sort_order: 'asc' }, select: { id: true, url: true } },
 } satisfies Prisma.StudioSetSelect;
+
+/** Số ảnh tối đa trong album của 1 set. */
+export const MAX_SET_IMAGES = 10;
 
 // Gói thuê trả về cho app (giá Decimal -> number ở toPackage)
 const PACKAGE_SELECT = {
@@ -386,6 +390,53 @@ export class StudiosService {
       }
     }
     return this.findImages(studioId);
+  }
+
+  // ---- Album ảnh của set ----
+
+  /** Thêm ảnh vào album set (tối đa MAX_SET_IMAGES ảnh / set). Trả về album mới. */
+  async addSetImages(studioId: string, setId: string, ownerId: string, urls: string[]) {
+    await this.ensureOwnership(studioId, ownerId);
+    await this.ensureSet(studioId, setId);
+    if (urls.length === 0) throw new BadRequestException('Chưa chọn ảnh nào');
+
+    const [count, last] = await Promise.all([
+      this.prisma.setImage.count({ where: { set_id: setId } }),
+      this.prisma.setImage.findFirst({
+        where: { set_id: setId },
+        orderBy: { sort_order: 'desc' },
+        select: { sort_order: true },
+      }),
+    ]);
+    if (count + urls.length > MAX_SET_IMAGES) {
+      throw new BadRequestException(
+        `Mỗi bối cảnh tối đa ${MAX_SET_IMAGES} ảnh (đang có ${count}, còn thêm được ${Math.max(0, MAX_SET_IMAGES - count)})`,
+      );
+    }
+    const start = (last?.sort_order ?? -1) + 1;
+    await this.prisma.setImage.createMany({
+      data: urls.map((url, i) => ({ set_id: setId, url, sort_order: start + i })),
+    });
+    return this.findSetImages(setId);
+  }
+
+  async deleteSetImage(studioId: string, setId: string, ownerId: string, imageId: string) {
+    await this.ensureOwnership(studioId, ownerId);
+    await this.ensureSet(studioId, setId);
+    const image = await this.prisma.setImage.findFirst({ where: { id: imageId, set_id: setId } });
+    if (!image) throw new NotFoundException('Ảnh không tồn tại trong bối cảnh này');
+
+    await this.prisma.setImage.delete({ where: { id: imageId } });
+    await deleteLocalMedia(image.url);
+    return this.findSetImages(setId);
+  }
+
+  private findSetImages(setId: string) {
+    return this.prisma.setImage.findMany({
+      where: { set_id: setId },
+      orderBy: { sort_order: 'asc' },
+      select: { id: true, url: true },
+    });
   }
 
   /** Sửa set. Đổi ảnh đại diện / ẩn-hiện set khi studio đang hoạt động -> cập nhật AI index. */

@@ -11,6 +11,9 @@ import '../../models/studio_model.dart';
 import '../bookings/booking_screen.dart';
 import 'reviews_screen.dart';
 import 'widgets/review_card.dart';
+import 'widgets/package_card.dart';
+import 'widgets/photo_viewer.dart';
+import 'set_detail_screen.dart';
 
 class StudioDetailScreen extends StatefulWidget {
   final String studioId;
@@ -252,12 +255,20 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
             PageView.builder(
               itemCount: detail.images.length,
               onPageChanged: (i) => setState(() => _imageIndex = i),
-              itemBuilder: (context, index) => Image.network(
-                detail.images[index].url,
-                fit: BoxFit.cover,
-                loadingBuilder: (context, child, progress) =>
-                    progress == null ? child : const _HeroPlaceholder(),
-                errorBuilder: (context, error, stackTrace) => const _HeroPlaceholder(),
+              itemBuilder: (context, index) => GestureDetector(
+                onTap: () => PhotoViewerScreen.open(
+                  context,
+                  [for (final img in detail.images) img.url],
+                  index: index,
+                  title: detail.name,
+                ),
+                child: Image.network(
+                  detail.images[index].url,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, progress) =>
+                      progress == null ? child : const _HeroPlaceholder(),
+                  errorBuilder: (context, error, stackTrace) => const _HeroPlaceholder(),
+                ),
               ),
             ),
 
@@ -427,13 +438,13 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
               for (final pkg in _selectedSet!.packages)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _PackageCard(
+                  child: PackageCard(
                     package: pkg,
                     onTap: () => _onChooseSchedule(packageId: pkg.id),
                   ),
                 ),
             const SizedBox(height: 4),
-            _OpeningInfo(detail: detail),
+            OpeningInfo(detail: detail),
           ],
 
           if (detail.addons.isNotEmpty) ...[
@@ -503,7 +514,15 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
           return _SetCard(
             set: set,
             selected: set.id == _selectedSetId,
-            onTap: () => setState(() => _selectedSetId = set.id),
+            onTap: () {
+              // Chọn set (để mục Gói thuê bên dưới đổi theo) rồi mở chi tiết bối cảnh
+              setState(() => _selectedSetId = set.id);
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SetDetailScreen(studio: _detail!, set: set),
+                ),
+              );
+            },
           );
         },
       ),
@@ -885,86 +904,6 @@ class _SetPlaceholder extends StatelessWidget {
   }
 }
 
-/// Thẻ một gói thuê; bấm vào để sang màn Đặt lịch với gói này được chọn sẵn.
-class _PackageCard extends StatelessWidget {
-  final RentalPackageModel package;
-  final VoidCallback onTap;
-
-  const _PackageCard({required this.package, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final p = package;
-    final peopleText = p.extraPersonFee > 0
-        ? 'Gồm ${p.includedPeople} người · +${Formatters.vnd(p.extraPersonFee)}/người thêm · tối đa ${p.maxPeople}'
-        : 'Tối đa ${p.maxPeople} người';
-
-    return Material(
-      color: AppColors.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: AppColors.outline),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      p.name,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textTitle,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      Formatters.duration(p.durationMinutes),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.accentText,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      peopleText,
-                      style: const TextStyle(fontSize: 12, height: 1.4, color: AppColors.textBody),
-                    ),
-                    if (p.description != null && p.description!.trim().isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        p.description!.trim(),
-                        style: const TextStyle(fontSize: 12, height: 1.4, color: AppColors.textFaint),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                Formatters.vnd(p.price),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textTitle,
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded, size: 22, color: AppColors.textFaint),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 /// Một dòng dịch vụ thêm ở màn Chi tiết: biểu tượng + tên + giá/đơn vị.
 class _AddonRow extends StatelessWidget {
@@ -1021,57 +960,6 @@ class _AddonRow extends StatelessWidget {
             ),
             style: const TextStyle(fontSize: 14, color: AppColors.textBody),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Giờ mở cửa + phụ thu (thay cho bảng giá 4 ô cũ).
-class _OpeningInfo extends StatelessWidget {
-  final StudioDetailModel detail;
-
-  const _OpeningInfo({required this.detail});
-
-  @override
-  Widget build(BuildContext context) {
-    final lines = <String>[
-      detail.isOpen24h ? 'Mở cửa 24/7' : 'Mở cửa ${detail.openTime} – ${detail.closeTime} hằng ngày',
-      if (detail.eveningSurchargePct > 0)
-        'Phụ thu +${detail.eveningSurchargePct}% nếu bắt đầu từ ${detail.eveningStartTime}',
-      if (detail.weekendSurchargePct > 0) 'Phụ thu +${detail.weekendSurchargePct}% thứ 7, chủ nhật',
-    ];
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final line in lines)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(top: 2),
-                    child: Icon(Icons.schedule_rounded, size: 14, color: AppColors.textFaint),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      line,
-                      style: const TextStyle(fontSize: 13, height: 1.4, color: AppColors.textBody),
-                    ),
-                  ),
-                ],
-              ),
-            ),
         ],
       ),
     );

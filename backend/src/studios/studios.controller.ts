@@ -183,6 +183,38 @@ export class StudiosController {
     return this.studiosService.deleteImage(id, ownerId, imageId);
   }
 
+  // ---- Album ảnh của set (multipart/form-data, field "images") ----
+
+  /** Thêm ảnh vào album 1 bối cảnh; tối đa 10 ảnh / set (tính cả ảnh đã có). */
+  @Roles('studio_owner')
+  @Post(':id/sets/:setId/images')
+  @UseInterceptors(FilesInterceptor('images', 10, imageUploadOptions('sets')))
+  async addSetImages(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('setId', ParseUUIDPipe) setId: string,
+    @CurrentUser('id') ownerId: string,
+    @UploadedFiles() files: Express.Multer.File[] = [],
+  ) {
+    const urls = files.map((f) => publicUrl('sets', f.filename));
+    try {
+      return await this.studiosService.addSetImages(id, setId, ownerId, urls);
+    } catch (err) {
+      await Promise.all(urls.map(deleteLocalMedia)); // lỗi quyền / quá số ảnh -> dọn file vừa ghi
+      throw err;
+    }
+  }
+
+  @Roles('studio_owner')
+  @Delete(':id/sets/:setId/images/:imageId')
+  deleteSetImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('setId', ParseUUIDPipe) setId: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+    @CurrentUser('id') ownerId: string,
+  ) {
+    return this.studiosService.deleteSetImage(id, setId, ownerId, imageId);
+  }
+
   /**
    * Tải 1 ảnh (field "image") để dùng làm ảnh đại diện của set.
    * Trả về { url } -> app gửi url này trong avatar_url khi tạo/sửa set.
