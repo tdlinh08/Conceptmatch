@@ -8,6 +8,7 @@ class BookingAddonLine {
   final double quantity; // số lượt / số giờ / số người
   final double amount;
   final String? staffName; // null khi studio chưa xác nhận đơn
+  final String? staffPhone;
 
   BookingAddonLine({
     required this.name,
@@ -15,6 +16,7 @@ class BookingAddonLine {
     required this.quantity,
     required this.amount,
     this.staffName,
+    this.staffPhone,
   });
 
   static List<BookingAddonLine> listFrom(Object? json) => ((json as List?) ?? const [])
@@ -29,6 +31,7 @@ class BookingAddonLine {
       quantity: Formatters.money(json['quantity']),
       amount: Formatters.money(json['amount']),
       staffName: staff?['full_name'] as String?,
+      staffPhone: staff?['phone'] as String?,
     );
   }
 }
@@ -289,6 +292,11 @@ class BookingDetail {
   final int? reviewStars;
   final String? reviewComment;
 
+  // Khách đặt (chủ studio xem)
+  final String? customerName;
+  final String? customerEmail;
+  final String? customerAvatar;
+
   BookingDetail({
     required this.id,
     required this.status,
@@ -315,6 +323,9 @@ class BookingDetail {
     required this.addons,
     this.reviewStars,
     this.reviewComment,
+    this.customerName,
+    this.customerEmail,
+    this.customerAvatar,
   });
 
   bool get hasReview => reviewStars != null;
@@ -352,6 +363,11 @@ class BookingDetail {
       addons: BookingAddonLine.listFrom(json['addons']),
       reviewStars: review?['stars'] as int?,
       reviewComment: review?['comment'] as String?,
+      customerName: (json['customer'] as Map<String, dynamic>?)?['full_name'] as String?,
+      customerEmail: (json['customer'] as Map<String, dynamic>?)?['email'] as String?,
+      customerAvatar: ApiConstants.mediaUrl(
+        (json['customer'] as Map<String, dynamic>?)?['avatar_url'] as String?,
+      ),
     );
   }
 }

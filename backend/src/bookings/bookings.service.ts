@@ -11,7 +11,7 @@ import { ChatGateway } from '../conversations/chat.gateway';
 import { NotificationsService, shortTime } from '../notifications/notifications.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { QueryBookingsDto } from './dto/query-bookings.dto';
-import { QueryStudioBookingsDto } from './dto/query-studio-bookings.dto';
+import { OwnerBookingGroup, QueryStudioBookingsDto } from './dto/query-studio-bookings.dto';
 import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
 import {
   addonLine,
@@ -41,6 +41,23 @@ const ALLOWED_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> = {
   pending: ['confirmed', 'rejected'],
   confirmed: ['checked_in', 'no_show'],
   checked_in: ['completed'],
+};
+
+/** Tab ở app chủ studio -> các trạng thái tương ứng. */
+const OWNER_GROUP_STATUSES: Record<OwnerBookingGroup, BookingStatus[]> = {
+  pending: ['pending'],
+  upcoming: ['confirmed', 'checked_in'],
+  past: ['completed', 'no_show', 'rejected', 'cancelled'],
+};
+
+const STATUS_LABEL: Record<BookingStatus, string> = {
+  pending: 'Chờ xác nhận',
+  confirmed: 'Đã xác nhận',
+  checked_in: 'Đang chụp',
+  completed: 'Hoàn thành',
+  cancelled: 'Khách đã huỷ',
+  rejected: 'Đã từ chối',
+  no_show: 'Khách không đến',
 };
 
 // Dịch vụ thêm trong đơn + thợ được phân công (null khi chưa xác nhận)
@@ -296,14 +313,20 @@ export class BookingsService {
    * các trạng thái đã kết thúc xếp mới nhất trước.
    */
   async findAllForOwner(ownerId: string, query: QueryStudioBookingsDto) {
-    const { status, studio_id, page, limit } = query;
+    const { status, studio_id, group, page, limit } = query;
+    const statuses: BookingStatus[] | undefined = status
+      ? [status]
+      : group
+        ? OWNER_GROUP_STATUSES[group]
+        : undefined;
     const where: Prisma.BookingWhereInput = {
       studio: { owner_id: ownerId },
       ...(studio_id && { studio_id }),
-      ...(status && { status }),
+      ...(statuses && { status: { in: statuses } }),
     };
+    // Đơn còn hiệu lực: giờ chụp gần nhất lên đầu; đơn đã kết thúc: mới nhất lên đầu
     const upcomingFirst =
-      status !== undefined && ACTIVE_BOOKING_STATUSES.includes(status);
+      statuses !== undefined && statuses.every((s) => ACTIVE_BOOKING_STATUSES.includes(s));
 
     const [data, total] = await this.prisma.$transaction([
       this.prisma.booking.findMany({
@@ -340,8 +363,8 @@ export class BookingsService {
         customer: b.user,
         start_time: b.start_time,
         end_time: b.end_time,
-        total_amount: b.total_amount,
-        deposit_amount: b.deposit_amount,
+        total_amount: Number(b.total_amount),
+        deposit_amount: Number(b.deposit_amount),
         status: b.status,
         special_note: b.special_note,
         cancel_reason: b.cancel_reason,
@@ -447,14 +470,23 @@ export class BookingsService {
     const allowedNext = ALLOWED_TRANSITIONS[booking.status] ?? [];
     if (!allowedNext.includes(dto.status)) {
       throw new BadRequestException(
-        `Không thể chuyển từ trạng thái "${booking.status}" sang "${dto.status}"`,
+        `Không thể chuyển đơn từ "${STATUS_LABEL[booking.status]}" sang "${STATUS_LABEL[dto.status]}"`,
       );
     }
 
-    if (dto.status === 'rejected' && !dto.cancel_reason) {
+    // Ràng buộc theo thời gian
+    const now = new Date();
+    if (dto.status === 'confirmed' && booking.start_time <= now) {
       throw new BadRequestException(
-        'Cần nhập cancel_reason khi từ chối booking',
+        'Đơn đã quá giờ bắt đầu nên không xác nhận được nữa — hãy từ chối đơn',
       );
+    }
+    if (dto.status === 'no_show' && booking.start_time > now) {
+      throw new BadRequestException('Chưa tới giờ hẹn, chưa thể đánh dấu khách không đến');
+    }
+
+    if (dto.status === 'rejected' && !dto.cancel_reason) {
+      throw new BadRequestException('Cần nhập lý do khi từ chối đơn (cancel_reason)');
     }
 
     const needsAssignment =

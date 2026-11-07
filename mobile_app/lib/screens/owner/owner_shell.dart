@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/notification_model.dart';
 import '../../providers/notifications_provider.dart';
+import '../../providers/owner_bookings_provider.dart';
 import '../../providers/owner_studios_provider.dart';
 import '../notifications/notifications_screen.dart';
 import '../profile/profile_screen.dart';
 import 'my_studios_screen.dart';
+import 'owner_booking_detail_screen.dart';
 import 'owner_bookings_screen.dart';
 import 'owner_studio_detail_screen.dart';
 
@@ -41,15 +43,18 @@ class _OwnerShellState extends State<OwnerShell> {
     });
   }
 
-  /// Thông báo đơn đặt / đánh giá -> tab Lịch đặt; studio được duyệt / bị từ chối -> mở studio đó.
+  /// Thông báo đơn đặt / đánh giá -> mở chi tiết đơn; studio được duyệt / bị từ chối -> mở studio đó.
   void _openNotification(AppNotification n) {
-    if (n.type.startsWith('studio_') && n.refId != null) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => OwnerStudioDetailScreen(studioId: n.refId!)),
-      );
+    if (n.refId == null) return;
+    final Widget screen;
+    if (n.type.startsWith('studio_')) {
+      screen = OwnerStudioDetailScreen(studioId: n.refId!);
     } else if (n.opensBooking) {
-      _select(_bookingsTab);
+      screen = OwnerBookingDetailScreen(bookingId: n.refId!);
+    } else {
+      return;
     }
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   /// IndexedStack giữ nguyên các tab -> chủ động tải lại khi chuyển tab.
@@ -58,6 +63,8 @@ class _OwnerShellState extends State<OwnerShell> {
     setState(() => _index = index);
     switch (index) {
       case _bookingsTab:
+        context.read<OwnerStudiosProvider>().fetchMine();
+        context.read<OwnerBookingsProvider>().refreshAll();
       case _studiosTab:
         context.read<OwnerStudiosProvider>().fetchMine();
       case _notificationsTab:

@@ -14,6 +14,17 @@ class Formatters {
     return '$sign${buffer.toString()}đ';
   }
 
+  /// "Thứ 7, 14/11/2026" (giờ máy).
+  static String dateLabel(DateTime d) {
+    const weekdays = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật'];
+    return '${weekdays[d.weekday - 1]}, ${_two(d.day)}/${_two(d.month)}/${d.year}';
+  }
+
+  /// "09:30"
+  static String hm(DateTime d) => '${_two(d.hour)}:${_two(d.minute)}';
+
+  static String _two(int n) => n.toString().padLeft(2, '0');
+
   /// Thời lượng gói: 60 -> "1 giờ", 90 -> "1 giờ 30 phút", 30 -> "30 phút".
   static String duration(int minutes) {
     final h = minutes ~/ 60;

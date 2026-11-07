@@ -7,6 +7,7 @@ import '../../providers/bookings_provider.dart';
 import '../../providers/notifications_provider.dart';
 import '../../providers/favorites_provider.dart';
 import '../../providers/owner_studios_provider.dart';
+import '../../providers/owner_bookings_provider.dart';
 import 'profile_edit_sheets.dart';
 
 /// Tab "Cá nhân": thông tin tài khoản, số liệu nhanh, chỉnh sửa hồ sơ, đăng xuất.
@@ -86,6 +87,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final bookings = context.read<BookingsProvider>();
     final notifications = context.read<NotificationsProvider>();
     final ownerStudios = context.read<OwnerStudiosProvider>();
+    final ownerBookings = context.read<OwnerBookingsProvider>();
     await context.read<AuthProvider>().logout();
     // Xoá dữ liệu của tài khoản vừa đăng xuất để người đăng nhập sau
     // không thấy danh sách đã lưu / lịch hẹn của người trước.
@@ -93,6 +95,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     bookings.reset();
     notifications.reset();
     ownerStudios.reset();
+    ownerBookings.reset();
   }
 
   @override
