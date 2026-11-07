@@ -7,5 +7,6 @@ import { AiModule } from '../ai/ai.module';
   imports: [AiModule], // tạo/sửa set khi studio đang hoạt động -> encode ảnh cho AI
   controllers: [StudiosController],
   providers: [StudiosService],
+  exports: [StudiosService], // admin xem chi tiết studio (findFull)
 })
 export class StudiosModule {}

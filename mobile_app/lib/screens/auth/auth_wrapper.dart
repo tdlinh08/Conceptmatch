@@ -4,6 +4,7 @@ import '../../providers/auth_provider.dart';
 import 'login_screen.dart';
 import '../main/main_shell.dart';
 import '../owner/owner_shell.dart';
+import '../admin/admin_shell.dart';
 
 /// Widget gốc quyết định hiển thị màn hình nào dựa theo trạng thái đăng nhập.
 /// Đặt làm `home` của MaterialApp thay vì chỉ định thẳng LoginScreen, để tự
@@ -36,11 +37,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
       case AuthStatus.unknown:
         return const Scaffold(body: Center(child: CircularProgressIndicator()));
       case AuthStatus.authenticated:
-        // Chủ studio -> app quản lý studio; khách (và admin, chưa có app riêng) -> app đặt lịch.
-        // Key theo vai trò: đổi tài khoản khác vai trò thì dựng lại khung từ đầu.
-        return auth.currentUser?.role == 'studio_owner'
-            ? const OwnerShell(key: ValueKey('owner'))
-            : const MainShell(key: ValueKey('customer'));
+        // Mỗi vai trò một khung app. Key theo vai trò: đổi tài khoản khác vai trò thì dựng lại từ đầu.
+        return switch (auth.currentUser?.role) {
+          'studio_owner' => const OwnerShell(key: ValueKey('owner')),
+          'admin' => const AdminShell(key: ValueKey('admin')), // web (máy tính) hoặc điện thoại
+          _ => const MainShell(key: ValueKey('customer')),
+        };
       case AuthStatus.unauthenticated:
         return const LoginScreen();
     }

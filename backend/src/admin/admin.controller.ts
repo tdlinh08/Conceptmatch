@@ -8,6 +8,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { QueryAdminStudiosDto } from './dto/query-admin-studios.dto';
+import { QueryAuditLogsDto } from './dto/query-audit-logs.dto';
 import { RejectStudioDto } from './dto/reject-studio.dto';
 import { QueryUsersDto } from './dto/query-users.dto';
 import { LockUserDto } from './dto/lock-user.dto';
@@ -28,6 +30,32 @@ export class AdminController {
       Number(page) || 1,
       Number(limit) || 10,
     );
+  }
+
+  /** Mọi studio (lọc status, keyword) + số lượng theo trạng thái. */
+  @Get('studios')
+  findStudios(@Query() query: QueryAdminStudiosDto) {
+    return this.adminService.findStudios(query);
+  }
+
+  @Get('studios/:id')
+  findStudio(@Param('id', ParseUUIDPipe) id: string) {
+    return this.adminService.findStudio(id);
+  }
+
+  /** Gỡ studio đang hoạt động (kèm lý do). */
+  @Patch('studios/:id/take-down')
+  takeDownStudio(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') adminId: string,
+    @Body() dto: RejectStudioDto,
+  ) {
+    return this.adminService.takeDownStudio(id, adminId, dto);
+  }
+
+  @Get('audit-logs')
+  findAuditLogs(@Query() query: QueryAuditLogsDto) {
+    return this.adminService.findAuditLogs(query);
   }
 
   @Patch('studios/:id/approve')

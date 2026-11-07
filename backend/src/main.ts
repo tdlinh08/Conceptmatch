@@ -12,12 +12,15 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  // Bật CORS TRƯỚC khi phục vụ file tĩnh: trang admin chạy trên trình duyệt (Flutter Web,
+  // khác cổng) cần header CORS cả ở ảnh /uploads, không chỉ ở API.
+  app.enableCors();
+
   // Phục vụ file người dùng tải lên (ảnh đại diện...) tại http://<máy chủ>:3000/uploads/...
   // Không nằm dưới /api/v1 vì setGlobalPrefix chỉ áp dụng cho route của controller.
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
 
   app.setGlobalPrefix('api/v1');
-  app.enableCors();
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true, // tự động loại bỏ field lạ không khai báo trong DTO

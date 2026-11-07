@@ -361,15 +361,22 @@ export class StudiosService {
   /** Chi tiết studio của chính chủ: gồm cả set đang ẩn, trạng thái duyệt, lý do từ chối. */
   async findMineOne(id: string, ownerId: string) {
     await this.ensureOwnership(id, ownerId);
-    const studio = await this.prisma.studio.findUniqueOrThrow({
+    return this.findFull(id);
+  }
+
+  /** Toàn bộ thông tin 1 studio (mọi trạng thái, gồm cả mục đang ẩn) — chủ studio và admin dùng. */
+  async findFull(id: string) {
+    const studio = await this.prisma.studio.findUnique({
       where: { id },
       include: {
         images: { orderBy: { sort_order: 'asc' } },
         sets: { orderBy: { created_at: 'asc' }, select: OWNER_SET_SELECT },
         staff: { orderBy: [{ role: 'asc' }, { full_name: 'asc' }], select: STAFF_SELECT },
         addons: { orderBy: [{ role: 'asc' }, { created_at: 'asc' }], select: ADDON_SELECT },
+        owner: { select: { id: true, full_name: true, email: true, status: true } },
       },
     });
+    if (!studio) throw new NotFoundException('Studio không tồn tại');
     return {
       ...studio,
       sets: studio.sets.map(toSetWithPackages),
