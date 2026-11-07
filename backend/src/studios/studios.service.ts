@@ -448,6 +448,20 @@ export class StudiosService {
     });
     if (!set) throw new NotFoundException('Bối cảnh (set) không tồn tại trong studio này');
 
+    // Giảm sức chứa: không được nhỏ hơn "số người tối đa" của gói đang bán trong set
+    if (dto.capacity !== undefined && dto.capacity < set.capacity) {
+      const biggest = await this.prisma.rentalPackage.aggregate({
+        where: { set_id: setId, is_active: true },
+        _max: { max_people: true },
+      });
+      const maxPeople = biggest._max.max_people ?? 0;
+      if (dto.capacity < maxPeople) {
+        throw new BadRequestException(
+          `Có gói thuê cho tối đa ${maxPeople} người — giảm số người tối đa của gói trước khi giảm sức chứa xuống ${dto.capacity}`,
+        );
+      }
+    }
+
     const avatarChanged = dto.avatar_url !== undefined && dto.avatar_url !== set.avatar_url;
     const activeChanged = dto.is_active !== undefined && dto.is_active !== set.is_active;
 

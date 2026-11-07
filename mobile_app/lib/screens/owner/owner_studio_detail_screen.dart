@@ -4,12 +4,15 @@ import '../../core/theme/app_theme.dart';
 import '../../models/owner_studio_model.dart';
 import '../../providers/owner_studios_provider.dart';
 import '../studios/widgets/photo_viewer.dart';
+import 'owner_addons_screen.dart';
+import 'owner_sets_screen.dart';
+import 'owner_staff_screen.dart';
 import 'studio_form_screen.dart';
 import 'widgets/pick_images.dart';
 import 'widgets/studio_status_badge.dart';
 
 /// Quản lý 1 studio (phía chủ studio): trạng thái duyệt, ảnh studio, thông tin,
-/// giờ mở cửa / phụ thu. Bối cảnh, gói thuê, nhân sự, dịch vụ thêm: bước 15b.
+/// giờ mở cửa / phụ thu, và lối vào Bối cảnh & gói thuê / Nhân sự / Dịch vụ thêm.
 class OwnerStudioDetailScreen extends StatefulWidget {
   final String studioId;
 
@@ -152,6 +155,16 @@ class _OwnerStudioDetailScreenState extends State<OwnerStudioDetailScreen> {
     }
   }
 
+  /// Mở màn quản lý con rồi tải lại (số bối cảnh / người / dịch vụ có thể đã đổi).
+  Future<void> _openSection(Widget screen) async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    if (mounted) _load();
+  }
+
+  void _openSets() => _openSection(OwnerSetsScreen(studioId: widget.studioId));
+  void _openStaff() => _openSection(OwnerStaffScreen(studioId: widget.studioId));
+  void _openAddons() => _openSection(OwnerAddonsScreen(studioId: widget.studioId));
+
   @override
   Widget build(BuildContext context) {
     final s = _studio;
@@ -191,7 +204,7 @@ class _OwnerStudioDetailScreenState extends State<OwnerStudioDetailScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
                 children: [
-                  _StatusCard(studio: s),
+                  _StatusCard(studio: s, onOpenSets: _openSets),
                   const SizedBox(height: 24),
                   _Header(
                     'Ảnh studio',
@@ -242,26 +255,27 @@ class _OwnerStudioDetailScreenState extends State<OwnerStudioDetailScreen> {
                   ],
                   const SizedBox(height: 28),
                   const _Header('Bối cảnh & dịch vụ'),
-                  const SizedBox(height: 10),
-                  _ComingRow(
+                  const SizedBox(height: 6),
+                  _NavRow(
                     icon: Icons.chair_outlined,
                     title: 'Bối cảnh & gói thuê',
-                    value: '${s.setCount} bối cảnh',
+                    value: s.setCount == 0
+                        ? 'Chưa có'
+                        : '${s.bookableSetCount}/${s.setCount} đang nhận đặt',
+                    warn: s.bookableSetCount == 0,
+                    onTap: _busy ? null : _openSets,
                   ),
-                  _ComingRow(
+                  _NavRow(
                     icon: Icons.badge_outlined,
                     title: 'Nhân sự (thợ ảnh, trang điểm)',
-                    value: '${s.staffCount} người',
+                    value: '${s.staffCount} đang làm',
+                    onTap: _busy ? null : _openStaff,
                   ),
-                  _ComingRow(
+                  _NavRow(
                     icon: Icons.add_business_outlined,
                     title: 'Dịch vụ thêm',
-                    value: '${s.addonCount} dịch vụ',
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Quản lý bối cảnh, gói thuê, nhân sự và dịch vụ ngay trong app sẽ có ở bản cập nhật tiếp theo.',
-                    style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+                    value: '${s.addonCount} đang bán',
+                    onTap: _busy ? null : _openAddons,
                   ),
                 ],
               ),
@@ -282,8 +296,9 @@ class _OwnerStudioDetailScreenState extends State<OwnerStudioDetailScreen> {
 /// Thẻ trạng thái duyệt + việc cần làm tiếp.
 class _StatusCard extends StatelessWidget {
   final OwnerStudioDetail studio;
+  final VoidCallback onOpenSets;
 
-  const _StatusCard({required this.studio});
+  const _StatusCard({required this.studio, required this.onOpenSets});
 
   @override
   Widget build(BuildContext context) {
@@ -333,6 +348,15 @@ class _StatusCard extends StatelessWidget {
               done: s.readyForApproval,
               text: 'Ít nhất 1 bối cảnh có gói thuê đang bán (bắt buộc)',
             ),
+            if (!s.readyForApproval)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: onOpenSets,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: Text(s.setCount == 0 ? 'Thêm bối cảnh' : 'Thêm gói thuê cho bối cảnh'),
+                ),
+              ),
           ],
         ],
       ),
@@ -527,26 +551,41 @@ class _InfoCard extends StatelessWidget {
   }
 }
 
-/// Mục sẽ quản lý ở bước 15b — tạm hiện số lượng.
-class _ComingRow extends StatelessWidget {
+/// Dòng bấm được để vào màn quản lý con, bên phải là số lượng.
+class _NavRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String value;
+  final bool warn;
+  final VoidCallback? onTap;
 
-  const _ComingRow({required this.icon, required this.title, required this.value});
+  const _NavRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+    this.warn = false,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      onTap: onTap,
+      leading: Icon(icon, color: AppColors.textFaint),
+      title: Text(title, style: const TextStyle(fontSize: 15, color: AppColors.textTitle)),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 20, color: AppColors.textFaint),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(title, style: const TextStyle(fontSize: 14, color: AppColors.textTitle)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: warn ? FontWeight.w600 : FontWeight.w400,
+              color: warn ? AppColors.statusWarning : AppColors.textFaint,
+            ),
           ),
-          Text(value, style: const TextStyle(fontSize: 13, color: AppColors.textFaint)),
+          const Icon(Icons.chevron_right_rounded, color: AppColors.textFaint),
         ],
       ),
     );

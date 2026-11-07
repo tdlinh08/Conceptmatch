@@ -75,9 +75,168 @@ class OwnerStudioImage {
       );
 }
 
-/// Chi tiết studio của chính chủ (GET /studios/mine/:id).
-/// Bước 15a dùng phần thông tin + ảnh; set / gói / nhân sự / dịch vụ quản lý ở bước 15b
-/// (tạm giữ số lượng để hiện tổng quan).
+/// Gói thuê phía chủ studio (gồm cả gói đang ẩn).
+class OwnerPackage {
+  final String id;
+  final String name;
+  final String? description;
+  final int durationMinutes;
+  final double price;
+  final int includedPeople;
+  final double extraPersonFee;
+  final int maxPeople;
+  final bool isActive;
+
+  OwnerPackage({
+    required this.id,
+    required this.name,
+    this.description,
+    required this.durationMinutes,
+    required this.price,
+    required this.includedPeople,
+    required this.extraPersonFee,
+    required this.maxPeople,
+    required this.isActive,
+  });
+
+  factory OwnerPackage.fromJson(Map<String, dynamic> json) => OwnerPackage(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        description: json['description'] as String?,
+        durationMinutes: json['duration_minutes'] as int,
+        price: _money(json['price']),
+        includedPeople: json['included_people'] as int,
+        extraPersonFee: _money(json['extra_person_fee']),
+        maxPeople: json['max_people'] as int,
+        isActive: json['is_active'] as bool? ?? true,
+      );
+}
+
+/// Ảnh trong album của bối cảnh.
+class OwnerSetImage {
+  final String id;
+  final String url; // địa chỉ đầy đủ
+  OwnerSetImage({required this.id, required this.url});
+}
+
+/// Bối cảnh (set) phía chủ studio (gồm cả set đang ẩn và gói đang ẩn).
+class OwnerSet {
+  final String id;
+  final String name;
+  final String? description;
+  final String? styleTag;
+  final int capacity;
+  final String avatarUrl; // địa chỉ đầy đủ
+  final String avatarPath; // đường dẫn gốc từ máy chủ (gửi lại khi sửa)
+  final bool isActive;
+  final List<OwnerSetImage> images;
+  final List<OwnerPackage> packages;
+
+  OwnerSet({
+    required this.id,
+    required this.name,
+    this.description,
+    this.styleTag,
+    required this.capacity,
+    required this.avatarUrl,
+    required this.avatarPath,
+    required this.isActive,
+    required this.images,
+    required this.packages,
+  });
+
+  List<OwnerPackage> get activePackages => packages.where((p) => p.isActive).toList();
+
+  /// Khách đặt được: set đang hiện và có ít nhất 1 gói đang bán.
+  bool get isBookable => isActive && activePackages.isNotEmpty;
+
+  factory OwnerSet.fromJson(Map<String, dynamic> json) {
+    final avatar = json['avatar_url'] as String? ?? '';
+    return OwnerSet(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      description: json['description'] as String?,
+      styleTag: json['style_tag'] as String?,
+      capacity: json['capacity'] as int,
+      avatarUrl: ApiConstants.mediaUrl(avatar) ?? '',
+      avatarPath: avatar,
+      isActive: json['is_active'] as bool? ?? true,
+      images: (json['images'] as List? ?? const [])
+          .map((e) => e as Map<String, dynamic>)
+          .map((e) => OwnerSetImage(
+                id: e['id'] as String,
+                url: ApiConstants.mediaUrl(e['url'] as String) ?? '',
+              ))
+          .toList(),
+      packages: (json['packages'] as List? ?? const [])
+          .map((e) => OwnerPackage.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+/// Nhân sự: thợ ảnh / thợ trang điểm.
+class OwnerStaff {
+  final String id;
+  final String fullName;
+  final String role; // photographer | makeup
+  final String? phone;
+  final bool isActive;
+
+  OwnerStaff({
+    required this.id,
+    required this.fullName,
+    required this.role,
+    this.phone,
+    required this.isActive,
+  });
+
+  factory OwnerStaff.fromJson(Map<String, dynamic> json) => OwnerStaff(
+        id: json['id'] as String,
+        fullName: json['full_name'] as String,
+        role: json['role'] as String,
+        phone: json['phone'] as String?,
+        isActive: json['is_active'] as bool? ?? true,
+      );
+}
+
+/// Dịch vụ thêm (khách tự chọn khi đặt).
+class OwnerAddon {
+  final String id;
+  final String role; // vai trò cần: photographer | makeup
+  final String name;
+  final String? description;
+  final double price;
+  final String unit; // per_booking | per_hour | per_person
+  final bool isActive;
+
+  OwnerAddon({
+    required this.id,
+    required this.role,
+    required this.name,
+    this.description,
+    required this.price,
+    required this.unit,
+    required this.isActive,
+  });
+
+  factory OwnerAddon.fromJson(Map<String, dynamic> json) => OwnerAddon(
+        id: json['id'] as String,
+        role: json['role'] as String,
+        name: json['name'] as String,
+        description: json['description'] as String?,
+        price: _money(json['price']),
+        unit: json['unit'] as String,
+        isActive: json['is_active'] as bool? ?? true,
+      );
+}
+
+/// Tiền trong JSON có thể là số hoặc chuỗi (Decimal của Prisma).
+double _money(Object? v) =>
+    v == null ? 0 : (v is num ? v.toDouble() : double.parse(v.toString()));
+
+/// Chi tiết studio của chính chủ (GET /studios/mine/:id): thông tin, ảnh,
+/// bối cảnh + gói (gồm cả mục đang ẩn), nhân sự, dịch vụ thêm.
 class OwnerStudioDetail {
   final String id;
   final String name;
@@ -93,10 +252,9 @@ class OwnerStudioDetail {
   final int eveningSurchargePct;
   final int weekendSurchargePct;
   final List<OwnerStudioImage> images;
-  final int setCount;
-  final int bookableSetCount; // set đang hiện và có ít nhất 1 gói đang bán
-  final int staffCount;
-  final int addonCount;
+  final List<OwnerSet> sets;
+  final List<OwnerStaff> staff;
+  final List<OwnerAddon> addons;
 
   OwnerStudioDetail({
     required this.id,
@@ -113,25 +271,36 @@ class OwnerStudioDetail {
     required this.eveningSurchargePct,
     required this.weekendSurchargePct,
     required this.images,
-    required this.setCount,
-    required this.bookableSetCount,
-    required this.staffCount,
-    required this.addonCount,
+    required this.sets,
+    required this.staff,
+    required this.addons,
   });
 
   bool get isOpen24h => openTime == '00:00' && closeTime == '24:00';
 
+  /// Số phút mở cửa mỗi ngày — gói thuê không được dài hơn (khớp kiểm tra ở backend).
+  int get openMinutes {
+    int m(String t) => int.parse(t.split(':')[0]) * 60 + int.parse(t.split(':')[1]);
+    return m(closeTime) - m(openTime);
+  }
+
+  int get setCount => sets.length;
+  int get bookableSetCount => sets.where((s) => s.isBookable).length;
+  int get staffCount => staff.where((s) => s.isActive).length;
+  int get addonCount => addons.where((a) => a.isActive).length;
+  int activeStaffOf(String role) => staff.where((s) => s.isActive && s.role == role).length;
+
   /// Đủ điều kiện để admin duyệt (khớp kiểm tra ở backend): có bối cảnh đang bán gói.
   bool get readyForApproval => bookableSetCount > 0;
 
-  factory OwnerStudioDetail.fromJson(Map<String, dynamic> json) {
-    final sets = (json['sets'] as List? ?? const []).cast<Map<String, dynamic>>();
-    final bookable = sets.where((s) {
-      final active = s['is_active'] as bool? ?? true;
-      final packages = (s['packages'] as List? ?? const []).cast<Map<String, dynamic>>();
-      return active && packages.any((p) => p['is_active'] as bool? ?? true);
-    }).length;
+  OwnerSet? setById(String id) {
+    for (final s in sets) {
+      if (s.id == id) return s;
+    }
+    return null;
+  }
 
+  factory OwnerStudioDetail.fromJson(Map<String, dynamic> json) {
     return OwnerStudioDetail(
       id: json['id'] as String,
       name: json['name'] as String,
@@ -149,10 +318,15 @@ class OwnerStudioDetail {
       images: (json['images'] as List? ?? const [])
           .map((e) => OwnerStudioImage.fromJson(e as Map<String, dynamic>))
           .toList(),
-      setCount: sets.length,
-      bookableSetCount: bookable,
-      staffCount: (json['staff'] as List? ?? const []).length,
-      addonCount: (json['addons'] as List? ?? const []).length,
+      sets: (json['sets'] as List? ?? const [])
+          .map((e) => OwnerSet.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      staff: (json['staff'] as List? ?? const [])
+          .map((e) => OwnerStaff.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      addons: (json['addons'] as List? ?? const [])
+          .map((e) => OwnerAddon.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
   }
 }
