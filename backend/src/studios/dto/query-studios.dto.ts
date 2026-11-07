@@ -60,8 +60,22 @@ export class QueryStudiosDto {
   })
   services?: string;
 
-  // Sắp xếp: rating = đánh giá cao trước (mặc định), newest = mới tham gia trước
+  // Sắp xếp: rating = đánh giá cao trước (mặc định), newest = mới tham gia trước,
+  // distance = gần vị trí (lat, lng) nhất trước — bắt buộc gửi kèm lat, lng.
   @IsOptional()
-  @IsIn(['rating', 'newest'], { message: 'sort chỉ nhận rating hoặc newest' })
-  sort?: 'rating' | 'newest';
+  @IsIn(['rating', 'newest', 'distance'], { message: 'sort chỉ nhận rating, newest hoặc distance' })
+  sort?: 'rating' | 'newest' | 'distance';
+
+  // Vị trí người dùng: có thì mỗi studio trả thêm distance_km
+  @IsOptional()
+  @Type(() => Number)
+  @Min(-90)
+  @Max(90)
+  lat?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @Min(-180)
+  @Max(180)
+  lng?: number;
 }

@@ -14,6 +14,8 @@ import 'widgets/review_card.dart';
 import 'widgets/package_card.dart';
 import 'widgets/photo_viewer.dart';
 import 'set_detail_screen.dart';
+import '../../core/utils/maps_launcher.dart';
+import '../map/studio_mini_map.dart';
 
 class StudioDetailScreen extends StatefulWidget {
   final String studioId;
@@ -81,6 +83,16 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
             .id;
       }
     });
+  }
+
+  /// Mở Google Maps chỉ đường (theo toạ độ nếu đã ghim, không thì theo địa chỉ).
+  Future<void> _directions(StudioDetailModel d) async {
+    final ok = await openDirections(lat: d.latitude, lng: d.longitude, address: _fullAddress(d));
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không mở được bản đồ trên máy này')),
+      );
+    }
   }
 
   /// Mở màn Đặt lịch; bấm từ một gói cụ thể thì gói đó được chọn sẵn.
@@ -424,6 +436,35 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
               style: const TextStyle(fontSize: 14, height: 1.6, color: AppColors.textBody),
             ),
           ],
+
+          // ---- Vị trí: bản đồ nhỏ (nếu studio đã ghim) + nút Chỉ đường ----
+          const SizedBox(height: 28),
+          const _SectionTitle('Vị trí'),
+          const SizedBox(height: 10),
+          if (detail.hasLocation) ...[
+            StudioMiniMap(
+              latitude: detail.latitude!,
+              longitude: detail.longitude!,
+              onTap: () => _directions(detail),
+            ),
+            const SizedBox(height: 10),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _fullAddress(detail),
+                  style: const TextStyle(fontSize: 14, height: 1.4, color: AppColors.textBody),
+                ),
+              ),
+              const SizedBox(width: 12),
+              OutlinedButton.icon(
+                onPressed: () => _directions(detail),
+                icon: const Icon(Icons.directions_outlined, size: 18),
+                label: const Text('Chỉ đường'),
+              ),
+            ],
+          ),
 
           if (_selectedSet != null) ...[
             const SizedBox(height: 28),

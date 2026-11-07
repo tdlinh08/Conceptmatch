@@ -12,7 +12,9 @@ class StudioFilter {
   final int? maxPrice; // có ít nhất 1 gói giá <= maxPrice
   final double? minRating;
   final Set<String> services; // 'photographer', 'makeup': studio có thợ + đang bán dịch vụ đó
-  final String sort; // 'rating' (mặc định) | 'newest'
+  final String sort; // 'rating' (mặc định) | 'newest' | 'distance' (gần tôi, cần lat/lng)
+  final double? lat; // vị trí người dùng — có thì mỗi studio trả thêm khoảng cách
+  final double? lng;
 
   const StudioFilter({
     this.keyword = '',
@@ -22,6 +24,8 @@ class StudioFilter {
     this.minRating,
     this.services = const {},
     this.sort = 'rating',
+    this.lat,
+    this.lng,
   });
 
   /// Số bộ lọc trong bảng "Bộ lọc" đang bật (không tính từ khoá, concept, sắp xếp).
@@ -38,7 +42,9 @@ class StudioFilter {
     double? Function()? minRating,
     Set<String>? services,
     String? sort,
+    (double, double)? Function()? location, // truyền hàm để đặt được null
   }) {
+    final loc = location != null ? location() : (lat != null && lng != null ? (lat!, lng!) : null);
     return StudioFilter(
       keyword: keyword ?? this.keyword,
       styleTag: styleTag != null ? styleTag() : this.styleTag,
@@ -47,6 +53,8 @@ class StudioFilter {
       minRating: minRating != null ? minRating() : this.minRating,
       services: services ?? this.services,
       sort: sort ?? this.sort,
+      lat: loc?.$1,
+      lng: loc?.$2,
     );
   }
 
@@ -58,6 +66,8 @@ class StudioFilter {
         if (minRating != null) 'min_rating': minRating,
         if (services.isNotEmpty) 'services': (services.toList()..sort()).join(','),
         'sort': sort,
+        if (lat != null && lng != null) 'lat': lat,
+        if (lat != null && lng != null) 'lng': lng,
       };
 }
 

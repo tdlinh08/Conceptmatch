@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../../core/constants/districts.dart';
+import '../../core/utils/location_service.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
@@ -224,6 +225,11 @@ class _AllStudiosScreenState extends State<AllStudiosScreen> {
           label: 'Mới nhất',
           onRemove: () => _apply(filter.copyWith(sort: 'rating')),
         ),
+      if (filter.sort == 'distance')
+        _ActiveChip(
+          label: 'Gần tôi',
+          onRemove: () => _apply(filter.copyWith(sort: 'rating', location: () => null)),
+        ),
     ];
     final countText = provider.isLoading && provider.studios.isEmpty
         ? 'Đang tìm…'
@@ -353,6 +359,30 @@ class _FilterSheet extends StatefulWidget {
 
 class _FilterSheetState extends State<_FilterSheet> {
   late String _sort = widget.initial.sort;
+  late (double, double)? _location =
+      widget.initial.lat != null && widget.initial.lng != null
+          ? (widget.initial.lat!, widget.initial.lng!)
+          : null;
+  bool _locating = false;
+
+  /// Chọn "Gần tôi": lấy vị trí điện thoại (xin quyền nếu cần) rồi mới bật.
+  Future<void> _pickNearMe() async {
+    setState(() => _locating = true);
+    try {
+      final me = await LocationService.current();
+      if (!mounted) return;
+      setState(() {
+        _location = (me.latitude, me.longitude);
+        _sort = 'distance';
+      });
+    } on LocationException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
   late String? _district = widget.initial.district;
   late int? _maxPrice = widget.initial.maxPrice;
   late double? _minRating = widget.initial.minRating;
@@ -360,6 +390,7 @@ class _FilterSheetState extends State<_FilterSheet> {
 
   void _reset() => setState(() {
         _sort = 'rating';
+        _location = null;
         _district = null;
         _maxPrice = null;
         _minRating = null;
@@ -373,6 +404,8 @@ class _FilterSheetState extends State<_FilterSheet> {
   void _done() {
     Navigator.of(context).pop(widget.initial.copyWith(
       sort: _sort,
+      // Bỏ "Gần tôi" thì thôi gửi vị trí (không hiện khoảng cách nữa)
+      location: () => _sort == 'distance' ? _location : null,
       district: () => _district,
       maxPrice: () => _maxPrice,
       minRating: () => _minRating,
@@ -441,6 +474,11 @@ class _FilterSheetState extends State<_FilterSheet> {
                           label: 'Mới nhất',
                           selected: _sort == 'newest',
                           onTap: () => setState(() => _sort = 'newest'),
+                        ),
+                        _Pill(
+                          label: _locating ? 'Đang lấy vị trí…' : 'Gần tôi',
+                          selected: _sort == 'distance',
+                          onTap: _locating ? () {} : _pickNearMe,
                         ),
                       ],
                     ),

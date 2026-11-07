@@ -9,6 +9,8 @@ export const STUDIO_SUMMARY_SELECT = {
   name: true,
   district: true,
   avg_rating: true,
+  latitude: true,
+  longitude: true,
   images: { where: { is_cover: true }, take: 1, select: { url: true } },
   // Gói rẻ nhất của từng set đang hoạt động -> thẻ hiện "Từ ...đ"
   sets: {
@@ -44,6 +46,8 @@ export function toStudioSummary(s: StudioSummaryRow) {
     district: s.district,
     avg_rating: s.avg_rating,
     cover_image: s.images[0]?.url ?? null,
+    latitude: s.latitude,
+    longitude: s.longitude,
     // Giá gói rẻ nhất (null nếu studio chưa có gói nào) + thời lượng gói đó,
     // để app hiện "Từ 650.000đ / 1 giờ" thay vì ngầm hiểu là theo giờ.
     min_price: cheapest?.price ?? null,

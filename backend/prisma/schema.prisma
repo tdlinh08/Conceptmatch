@@ -43,6 +43,10 @@ model Studio {
   district     String       @db.VarChar(50)
   description  String?
   phone        String       @db.VarChar(20)
+  // Toạ độ (WGS84) do chủ studio ghim trên bản đồ — không bắt buộc.
+  // Dùng cho bản đồ nhỏ + "Chỉ đường" phía khách và sắp xếp "Gần tôi".
+  latitude     Float?
+  longitude    Float?
   status       StudioStatus @default(pending)
   reject_reason String?
   // Giờ hoạt động riêng của từng studio, dạng "HH:mm" ("24:00" = mở đến nửa đêm).

@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Mạng: gọi API + tải bản đồ OpenStreetMap (bản debug tự có, bản release cần khai báo) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Vị trí: chủ studio ghim vị trí, khách dùng "Gần tôi" -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <application
         android:label="mobile_app"
         android:name="${applicationName}"
@@ -41,6 +46,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- url_launcher: mở link https (Google Maps "Chỉ đường") trên Android 11+ -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

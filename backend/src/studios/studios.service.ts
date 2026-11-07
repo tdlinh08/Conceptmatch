@@ -13,8 +13,9 @@ import { CreateStudioSetDto } from './dto/create-studio-set.dto';
 import { AvailabilityQueryDto } from './dto/availability-query.dto';
 import { CreatePackageDto } from './dto/create-package.dto';
 import { UpdatePackageDto } from './dto/update-package.dto';
-import { STUDIO_SUMMARY_SELECT, toStudioSummary } from './studio-summary';
+import { STUDIO_SUMMARY_SELECT, StudioSummaryRow, toStudioSummary } from './studio-summary';
 import { normalizeSearch, searchWords } from '../common/search-text';
+import { distanceKm, roundKm } from '../common/geo';
 import {
   addonLine,
   listStartTimes,
@@ -127,6 +128,23 @@ export class StudiosService {
   async findAll(query: QueryStudiosDto) {
     const { keyword, district, style_tag, min_price, max_price, min_rating, services, sort, page, limit } =
       query;
+    const { lat, lng } = query;
+    const hasPoint = lat !== undefined && lng !== undefined;
+    if ((lat === undefined) !== (lng === undefined)) {
+      throw new BadRequestException('Cần gửi cả lat và lng');
+    }
+    if (sort === 'distance' && !hasPoint) {
+      throw new BadRequestException('Sắp xếp "Gần tôi" cần vị trí của bạn (lat, lng)');
+    }
+    // Khoảng cách tới người dùng (null nếu không gửi vị trí hoặc studio chưa ghim vị trí)
+    const distanceOf = (s: { latitude: number | null; longitude: number | null }) =>
+      hasPoint && s.latitude !== null && s.longitude !== null
+        ? distanceKm(lat!, lng!, s.latitude, s.longitude)
+        : null;
+    const withDistance = (s: StudioSummaryRow) => {
+      const d = distanceOf(s);
+      return { ...toStudioSummary(s), distance_km: d === null ? null : roundKm(d) };
+    };
     const words = searchWords(keyword ?? '');
     const roles = (services?.split(',') ?? []) as StaffRole[];
 
@@ -173,6 +191,31 @@ export class StudiosService {
       ],
     };
 
+    if (sort === 'distance') {
+      // Prisma không sắp theo biểu thức tính toán -> lấy toạ độ mọi studio khớp bộ lọc,
+      // tính khoảng cách, sắp xếp, cắt trang rồi mới lấy dữ liệu thẻ của trang đó.
+      // Phù hợp quy mô đồ án (vài chục studio); quy mô lớn nên dùng PostGIS / earthdistance.
+      const points = await this.prisma.studio.findMany({
+        where,
+        select: { id: true, latitude: true, longitude: true },
+      });
+      const ranked = points
+        .map((p) => ({ id: p.id, d: distanceOf(p) ?? Number.POSITIVE_INFINITY })) // chưa ghim -> cuối
+        .sort((a, b) => a.d - b.d);
+      const pageIds = ranked.slice((page - 1) * limit, page * limit).map((r) => r.id);
+      const rows = await this.prisma.studio.findMany({
+        where: { id: { in: pageIds } },
+        select: STUDIO_SUMMARY_SELECT,
+      });
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      return {
+        data: pageIds.map((id) => byId.get(id)!).filter(Boolean).map(withDistance),
+        total: ranked.length,
+        page,
+        limit,
+      };
+    }
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.studio.findMany({
         where,
@@ -188,7 +231,7 @@ export class StudiosService {
     ]);
 
     return {
-      data: data.map((s) => toStudioSummary(s)),
+      data: data.map(withDistance),
       total,
       page,
       limit,
@@ -234,6 +277,7 @@ export class StudiosService {
 
   async create(ownerId: string, dto: CreateStudioDto) {
     this.assertOpeningHours(dto.open_time ?? '08:00', dto.close_time ?? '22:00');
+    this.assertLocation(dto);
     return this.prisma.studio.create({
       data: {
         ...dto,
@@ -247,6 +291,7 @@ export class StudiosService {
   async update(id: string, ownerId: string, dto: UpdateStudioDto) {
     const studio = await this.ensureOwnership(id, ownerId);
     this.assertOpeningHours(dto.open_time ?? studio.open_time, dto.close_time ?? studio.close_time);
+    this.assertLocation(dto);
 
     await this.prisma.studio.update({
       where: { id },
@@ -910,6 +955,15 @@ export class StudiosService {
   }
 
   /** Giờ mở cửa hợp lệ: đóng sau mở ít nhất 1 tiếng, không vắt qua nửa đêm. */
+  /** Toạ độ phải đi theo cặp: cùng có số, cùng null (xoá ghim) hoặc cùng không gửi. */
+  private assertLocation(dto: { latitude?: number | null; longitude?: number | null }) {
+    const kind = (v: number | null | undefined) =>
+      v === undefined ? 'missing' : v === null ? 'null' : 'number';
+    if (kind(dto.latitude) !== kind(dto.longitude)) {
+      throw new BadRequestException('Vị trí cần đủ cả latitude và longitude');
+    }
+  }
+
   private assertOpeningHours(openTime: string, closeTime: string) {
     try {
       if (toMinutes(closeTime) - toMinutes(openTime) < 60) {

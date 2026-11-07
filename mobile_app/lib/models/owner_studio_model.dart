@@ -244,6 +244,8 @@ class OwnerStudioDetail {
   final String district;
   final String phone;
   final String? description;
+  final double? latitude;
+  final double? longitude;
   final String status;
   final String? rejectReason;
   final String openTime;
@@ -263,6 +265,8 @@ class OwnerStudioDetail {
     required this.district,
     required this.phone,
     this.description,
+    this.latitude,
+    this.longitude,
     required this.status,
     this.rejectReason,
     required this.openTime,
@@ -277,6 +281,7 @@ class OwnerStudioDetail {
   });
 
   bool get isOpen24h => openTime == '00:00' && closeTime == '24:00';
+  bool get hasLocation => latitude != null && longitude != null;
 
   /// Số phút mở cửa mỗi ngày — gói thuê không được dài hơn (khớp kiểm tra ở backend).
   int get openMinutes {
@@ -308,6 +313,8 @@ class OwnerStudioDetail {
       district: json['district'] as String,
       phone: json['phone'] as String? ?? '',
       description: json['description'] as String?,
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
       status: json['status'] as String,
       rejectReason: json['reject_reason'] as String?,
       openTime: json['open_time'] as String? ?? '08:00',
@@ -343,6 +350,8 @@ class StudioFormData {
   final String eveningStartTime;
   final int eveningSurchargePct;
   final int weekendSurchargePct;
+  final double? latitude; // null cả 2 = chưa ghim / xoá ghim
+  final double? longitude;
 
   const StudioFormData({
     required this.name,
@@ -355,6 +364,8 @@ class StudioFormData {
     required this.eveningStartTime,
     required this.eveningSurchargePct,
     required this.weekendSurchargePct,
+    this.latitude,
+    this.longitude,
   });
 
   Map<String, dynamic> toJson() => {
@@ -368,5 +379,8 @@ class StudioFormData {
         'evening_start_time': eveningStartTime,
         'evening_surcharge_pct': eveningSurchargePct,
         'weekend_surcharge_pct': weekendSurchargePct,
+        // Luôn gửi cả 2 (null = xoá ghim) — backend yêu cầu đi theo cặp
+        'latitude': latitude,
+        'longitude': longitude,
       };
 }

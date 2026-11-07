@@ -4,6 +4,28 @@ import '../core/network/api_client.dart';
 import '../core/network/api_error.dart';
 import '../models/owner_studio_model.dart';
 
+/// 1 kết quả tìm địa chỉ.
+class AddressResult {
+  final String name;
+  final String address;
+  final double latitude;
+  final double longitude;
+
+  AddressResult({
+    required this.name,
+    required this.address,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  factory AddressResult.fromJson(Map<String, dynamic> json) => AddressResult(
+        name: json['name'] as String,
+        address: json['address'] as String,
+        latitude: (json['latitude'] as num).toDouble(),
+        longitude: (json['longitude'] as num).toDouble(),
+      );
+}
+
 /// Lỗi nghiệp vụ trả về cho màn hình (câu tiếng Việt đã sẵn để hiện).
 class OwnerActionException implements Exception {
   final String message;
@@ -216,6 +238,14 @@ class OwnerStudiosProvider extends ChangeNotifier {
         () => _api.dio.put('/studios/$studioId/addons/$addonId', data: body),
         'Không lưu được dịch vụ',
       );
+
+  /// Tìm địa chỉ -> toạ độ (GET /geocode, backend gọi OpenStreetMap Nominatim).
+  Future<List<AddressResult>> searchAddress(String q) => _call(() async {
+        final res = await _api.dio.get('/geocode', queryParameters: {'q': q});
+        return (res.data as List)
+            .map((e) => AddressResult.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }, 'Không tìm được địa chỉ');
 
   /// Các concept đang có trên hệ thống -> gợi ý khi đặt concept cho bối cảnh.
   Future<List<String>> fetchStyleTags() async {

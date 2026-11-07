@@ -117,7 +117,7 @@ class OwnerBookingsProvider extends ChangeNotifier {
     try {
       await _api.dio.patch('/bookings/$id/status', data: {
         'status': status,
-        if (reason != null) 'cancel_reason': reason,
+        'cancel_reason': ?reason,
         if (assignments != null && assignments.isNotEmpty)
           'staff_assignments': [
             for (final e in assignments.entries) {'role': e.key, 'staff_id': e.value},

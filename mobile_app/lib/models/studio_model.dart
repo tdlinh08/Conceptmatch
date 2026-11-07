@@ -12,6 +12,9 @@ class StudioModel {
   final double? minPrice;
   final int? minPriceMinutes;
 
+  /// Khoảng cách tới người dùng (km) — chỉ có khi app gửi vị trí ("Gần tôi").
+  final double? distanceKm;
+
   StudioModel({
     required this.id,
     required this.name,
@@ -20,6 +23,7 @@ class StudioModel {
     this.coverImage,
     this.minPrice,
     this.minPriceMinutes,
+    this.distanceKm,
   });
 
   factory StudioModel.fromJson(Map<String, dynamic> json) {
@@ -31,6 +35,7 @@ class StudioModel {
       coverImage: ApiConstants.mediaUrl(json['cover_image'] as String?),
       minPrice: (json['min_price'] as num?)?.toDouble(),
       minPriceMinutes: json['min_price_minutes'] as int?,
+      distanceKm: (json['distance_km'] as num?)?.toDouble(),
     );
   }
 }

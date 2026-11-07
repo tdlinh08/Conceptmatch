@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   Matches,
@@ -14,6 +15,21 @@ const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const HHMM_OR_24 = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/;
 
 export class CreateStudioDto {
+  // ---- Vị trí trên bản đồ (không bắt buộc; gửi cả 2 hoặc không gửi; null = xoá ghim) ----
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'latitude phải là số' })
+  @Min(-90)
+  @Max(90)
+  latitude?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'longitude phải là số' })
+  @Min(-180)
+  @Max(180)
+  longitude?: number | null;
+
   @IsNotEmpty({ message: 'Tên studio không được để trống' })
   @MaxLength(150)
   name: string;

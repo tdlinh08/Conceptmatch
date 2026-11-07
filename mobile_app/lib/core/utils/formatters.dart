@@ -20,6 +20,12 @@ class Formatters {
     return '${weekdays[d.weekday - 1]}, ${_two(d.day)}/${_two(d.month)}/${d.year}';
   }
 
+  /// 0.35 -> "350 m", 2.4 -> "2,4 km".
+  static String km(double km) {
+    if (km < 1) return '${(km * 1000 / 10).round() * 10} m';
+    return '${km.toStringAsFixed(1).replaceAll('.', ',')} km';
+  }
+
   /// "09:30"
   static String hm(DateTime d) => '${_two(d.hour)}:${_two(d.minute)}';
 

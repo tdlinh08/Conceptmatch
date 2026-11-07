@@ -77,7 +77,9 @@ class PhotoStudioCard extends StatelessWidget {
                       const SizedBox(width: 3),
                       Flexible(
                         child: Text(
-                          studio.district,
+                          studio.distanceKm == null
+                              ? studio.district
+                              : '${studio.district} · ${Formatters.km(studio.distanceKm!)}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: _textOnImageSoft, fontSize: 12.5),

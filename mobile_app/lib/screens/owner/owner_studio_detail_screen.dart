@@ -227,6 +227,12 @@ class _OwnerStudioDetailScreenState extends State<OwnerStudioDetailScreen> {
                   _InfoCard(
                     rows: [
                       (Icons.place_outlined, '${s.address}, ${s.district}'),
+                      (
+                        s.hasLocation ? Icons.where_to_vote_outlined : Icons.location_off_outlined,
+                        s.hasLocation
+                            ? 'Đã ghim vị trí trên bản đồ'
+                            : 'Chưa ghim vị trí — bấm Sửa để ghim (khách tìm đường dễ hơn)',
+                      ),
                       (Icons.call_outlined, s.phone),
                       (
                         Icons.schedule_rounded,
@@ -343,6 +349,7 @@ class _StatusCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const _Check(done: true, text: 'Thông tin studio, giờ mở cửa'),
+            _Check(done: s.hasLocation, text: 'Ghim vị trí trên bản đồ (nên có)'),
             _Check(done: s.images.isNotEmpty, text: 'Ít nhất 1 ảnh studio (nên có 3–5 ảnh)'),
             _Check(
               done: s.readyForApproval,

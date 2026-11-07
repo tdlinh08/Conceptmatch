@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/districts.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/owner_studio_model.dart';
 import '../../providers/owner_studios_provider.dart';
+import '../map/location_picker_screen.dart';
+import '../map/studio_mini_map.dart';
 
 /// Form TẠO MỚI (initial == null) hoặc SỬA thông tin studio.
 /// Tạo xong trả về id studio mới qua Navigator.pop; sửa xong trả về true.
@@ -31,6 +34,7 @@ class _StudioFormScreenState extends State<StudioFormScreen> {
   late String _close;
   late String _eveningStart;
   late bool _open24h;
+  LatLng? _pin; // vị trí đã ghim (null = chưa ghim)
   bool _saving = false;
 
   bool get _isEdit => widget.initial != null;
@@ -46,6 +50,7 @@ class _StudioFormScreenState extends State<StudioFormScreen> {
     _eveningPct = TextEditingController(text: '${s?.eveningSurchargePct ?? 0}');
     _weekendPct = TextEditingController(text: '${s?.weekendSurchargePct ?? 0}');
     _district = s?.district;
+    if (s != null && s.hasLocation) _pin = LatLng(s.latitude!, s.longitude!);
     _open24h = s?.isOpen24h ?? false;
     _open = s?.openTime ?? '08:00';
     _close = s?.closeTime ?? '22:00';
@@ -100,6 +105,16 @@ class _StudioFormScreenState extends State<StudioFormScreen> {
 
   int _pct(TextEditingController c) => int.tryParse(c.text.trim()) ?? 0;
 
+  Future<void> _pickLocation() async {
+    final address = [_address.text.trim(), ?_district]
+        .where((x) => x.isNotEmpty)
+        .join(', ');
+    final picked = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(builder: (_) => LocationPickerScreen(initial: _pin, address: address)),
+    );
+    if (picked != null && mounted) setState(() => _pin = picked);
+  }
+
   Future<void> _submit() async {
     FocusScope.of(context).unfocus();
     final hoursError = _validateHours();
@@ -121,6 +136,8 @@ class _StudioFormScreenState extends State<StudioFormScreen> {
       eveningStartTime: _eveningStart,
       eveningSurchargePct: _pct(_eveningPct),
       weekendSurchargePct: _pct(_weekendPct),
+      latitude: _pin?.latitude,
+      longitude: _pin?.longitude,
     );
 
     setState(() => _saving = true);
@@ -198,6 +215,44 @@ class _StudioFormScreenState extends State<StudioFormScreen> {
               ],
               onChanged: (v) => setState(() => _district = v),
               validator: (v) => v == null ? 'Chọn quận' : null,
+            ),
+            const SizedBox(height: 14),
+            // ---- Vị trí trên bản đồ (không bắt buộc) ----
+            if (_pin == null)
+              OutlinedButton.icon(
+                onPressed: _pickLocation,
+                icon: const Icon(Icons.add_location_alt_outlined),
+                label: const Text('Ghim vị trí trên bản đồ'),
+              )
+            else ...[
+              StudioMiniMap(
+                latitude: _pin!.latitude,
+                longitude: _pin!.longitude,
+                height: 140,
+                onTap: _pickLocation,
+              ),
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: _pickLocation,
+                    icon: const Icon(Icons.edit_location_alt_outlined, size: 18),
+                    label: const Text('Đổi vị trí'),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => setState(() => _pin = null),
+                    style: TextButton.styleFrom(foregroundColor: AppColors.statusError),
+                    child: const Text('Xoá ghim'),
+                  ),
+                ],
+              ),
+            ],
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                'Ghim giúp khách xem bản đồ, bấm "Chỉ đường" và tìm thấy studio trong mục "Gần tôi".',
+                style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+              ),
             ),
             const SizedBox(height: 14),
             TextFormField(

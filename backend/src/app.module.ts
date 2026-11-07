@@ -14,6 +14,7 @@ import { ConversationsModule } from './conversations/conversations.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { UsersModule } from './users/users.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { GeocodeModule } from './geocode/geocode.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 
@@ -31,6 +32,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     FavoritesModule,
     UsersModule,
     NotificationsModule,
+    GeocodeModule,
   ],
   controllers: [AppController],
   providers: [

@@ -165,6 +165,8 @@ class StudioDetailModel {
   final String district;
   final String? description;
   final String phone;
+  final double? latitude; // null = chủ studio chưa ghim vị trí
+  final double? longitude;
   final double avgRating;
   final int reviewCount;
   final List<StudioImageModel> images;
@@ -189,6 +191,8 @@ class StudioDetailModel {
     required this.district,
     this.description,
     required this.phone,
+    this.latitude,
+    this.longitude,
     required this.avgRating,
     required this.reviewCount,
     required this.images,
@@ -216,6 +220,8 @@ class StudioDetailModel {
     return best;
   }
 
+  bool get hasLocation => latitude != null && longitude != null;
+
   bool get isOpen24h => openTime == '00:00' && closeTime == '24:00';
 
   factory StudioDetailModel.fromJson(Map<String, dynamic> json) {
@@ -226,6 +232,8 @@ class StudioDetailModel {
       district: json['district'] as String,
       description: json['description'] as String?,
       phone: json['phone'] as String,
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
       avgRating: (json['avg_rating'] as num).toDouble(),
       reviewCount: json['review_count'] as int,
       images: (json['images'] as List)
