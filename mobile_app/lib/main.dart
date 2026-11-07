@@ -9,6 +9,7 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/app_background.dart';
 import 'providers/bookings_provider.dart';
 import 'providers/notifications_provider.dart';
+import 'providers/owner_studios_provider.dart';
 
 void main() {
   runApp(const ConceptMatchApp());
@@ -26,6 +27,7 @@ class ConceptMatchApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => FavoritesProvider()),
         ChangeNotifierProvider(create: (_) => BookingsProvider()),
         ChangeNotifierProvider(create: (_) => NotificationsProvider()),
+        ChangeNotifierProvider(create: (_) => OwnerStudiosProvider()),
       ],
       child: MaterialApp(
         title: 'ConceptMatch',

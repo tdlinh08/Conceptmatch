@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../core/constants/districts.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
@@ -25,12 +26,6 @@ class AllStudiosScreen extends StatefulWidget {
   @override
   State<AllStudiosScreen> createState() => _AllStudiosScreenState();
 }
-
-/// Quận (tên cũ, quen thuộc với người dùng) — khớp cột district khi nhập dữ liệu.
-const _districts = [
-  'Ba Đình', 'Hoàn Kiếm', 'Đống Đa', 'Hai Bà Trưng', 'Cầu Giấy', 'Tây Hồ', 'Thanh Xuân',
-  'Hoàng Mai', 'Long Biên', 'Nam Từ Liêm', 'Bắc Từ Liêm', 'Hà Đông',
-];
 
 /// Mức giá tối đa của gói (VNĐ).
 const _priceCaps = [300000, 500000, 1000000];
@@ -461,7 +456,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                           selected: _district == null,
                           onTap: () => setState(() => _district = null),
                         ),
-                        for (final d in _districts)
+                        for (final d in kDistricts)
                           _Pill(
                             label: d,
                             selected: _district == d,

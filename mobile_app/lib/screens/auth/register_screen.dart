@@ -18,6 +18,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   bool _obscurePassword = true;
+  String _role = 'user'; // 'user' | 'studio_owner'
 
   @override
   void dispose() {
@@ -37,6 +38,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       fullName: _fullNameController.text.trim(),
       email: _emailController.text.trim(),
       password: _passwordController.text,
+      role: _role,
     );
 
     if (!mounted) return;
@@ -97,7 +99,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 15, color: AppColors.textBody),
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 24),
+                    // Một tài khoản chỉ có 1 vai trò, chọn lúc đăng ký
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                          value: 'user',
+                          label: Text('Khách hàng'),
+                        ),
+                        ButtonSegment(
+                          value: 'studio_owner',
+                          label: Text('Chủ studio'),
+                        ),
+                      ],
+                      selected: {_role},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (v) => setState(() => _role = v.first),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _role == 'user'
+                          ? 'Tìm studio, đặt lịch chụp và đánh giá sau buổi chụp.'
+                          : 'Đăng studio, quản lý bối cảnh, gói thuê và lịch đặt của khách.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 13, color: AppColors.textFaint),
+                    ),
+                    const SizedBox(height: 20),
                     TextFormField(
                       controller: _fullNameController,
                       textCapitalization: TextCapitalization.words,

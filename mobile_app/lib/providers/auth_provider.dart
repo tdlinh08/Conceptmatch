@@ -65,6 +65,7 @@ class AuthProvider extends ChangeNotifier {
     required String fullName,
     required String email,
     required String password,
+    String role = 'user', // 'user' (khách) | 'studio_owner' (chủ studio)
   }) async {
     isLoading = true;
     errorMessage = null;
@@ -75,6 +76,7 @@ class AuthProvider extends ChangeNotifier {
         'full_name': fullName,
         'email': email,
         'password': password,
+        'role': role,
       });
       isLoading = false;
       notifyListeners();

@@ -8,7 +8,11 @@ import '../bookings/booking_detail_screen.dart';
 /// Màn "Thông báo": mới nhất lên đầu, chưa đọc có nền hồng + chấm.
 /// Bấm thông báo về đơn đặt -> đánh dấu đã đọc + mở "Chi tiết lịch hẹn".
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key});
+  /// Chủ studio truyền vào để tự xử lý khi bấm thông báo (vd mở tab Lịch đặt,
+  /// mở studio vừa được duyệt). Không truyền = cách của khách: mở Chi tiết lịch hẹn.
+  final void Function(AppNotification n)? onOpen;
+
+  const NotificationsScreen({super.key, this.onOpen});
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -25,6 +29,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   void _open(AppNotification n) {
     context.read<NotificationsProvider>().markRead(n);
+    if (widget.onOpen != null) {
+      widget.onOpen!(n);
+      return;
+    }
     if (n.opensBooking) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => BookingDetailScreen(bookingId: n.refId!)),

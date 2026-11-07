@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/bookings_provider.dart';
 import '../../providers/notifications_provider.dart';
 import '../../providers/favorites_provider.dart';
+import '../../providers/owner_studios_provider.dart';
 import 'profile_edit_sheets.dart';
 
 /// Tab "Cá nhân": thông tin tài khoản, số liệu nhanh, chỉnh sửa hồ sơ, đăng xuất.
@@ -84,12 +85,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final favorites = context.read<FavoritesProvider>();
     final bookings = context.read<BookingsProvider>();
     final notifications = context.read<NotificationsProvider>();
+    final ownerStudios = context.read<OwnerStudiosProvider>();
     await context.read<AuthProvider>().logout();
     // Xoá dữ liệu của tài khoản vừa đăng xuất để người đăng nhập sau
     // không thấy danh sách đã lưu / lịch hẹn của người trước.
     favorites.reset();
     bookings.reset();
     notifications.reset();
+    ownerStudios.reset();
   }
 
   @override
@@ -100,6 +103,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final bottomInset = MediaQuery.paddingOf(context).bottom; // chừa chỗ thanh điều hướng nổi
 
     final isCustomer = user?.role == 'user';
+    final isOwner = user?.role == 'studio_owner';
+    final owner = context.watch<OwnerStudiosProvider>();
     final upcoming = bookings.where((b) => b.isUpcoming).length;
     final completed = bookings.where((b) => b.status == 'completed').length;
 
@@ -180,17 +185,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Expanded(child: _StatTile(value: savedCount, label: 'Đã lưu')),
                 ],
               )
-            else
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.surfacePink,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'Ứng dụng di động hiện dành cho khách đặt lịch. Màn quản lý studio sẽ được bổ sung ở giai đoạn sau.',
-                  style: TextStyle(fontSize: 13, height: 1.5, color: AppColors.textBody),
-                ),
+            else if (isOwner)
+              Row(
+                children: [
+                  Expanded(child: _StatTile(value: owner.studios.length, label: 'Studio')),
+                  const SizedBox(width: 10),
+                  Expanded(child: _StatTile(value: owner.activeCount, label: 'Đã duyệt')),
+                  const SizedBox(width: 10),
+                  Expanded(child: _StatTile(value: owner.pendingBookingCount, label: 'Đơn chờ')),
+                ],
               ),
 
             // ---- Tài khoản ----
