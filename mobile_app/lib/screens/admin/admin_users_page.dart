@@ -7,6 +7,7 @@ import '../../models/admin_models.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/owner_studios_provider.dart' show OwnerActionException;
 import 'admin_ui.dart';
+import 'admin_user_detail_screen.dart';
 
 /// Trang NGƯỜI DÙNG: tìm theo tên / email, lọc vai trò + trạng thái, khoá / mở khoá.
 class AdminUsersPage extends StatefulWidget {
@@ -172,7 +173,17 @@ class AdminUsersPageState extends State<AdminUsersPage> {
             children: [
               for (var i = 0; i < _rows.length; i++) ...[
                 if (i > 0) const Divider(height: 1),
-                _UserRow(user: _rows[i], onLock: _lock, onUnlock: _unlock),
+                _UserRow(
+                  user: _rows[i],
+                  onLock: _lock,
+                  onUnlock: _unlock,
+                  onTap: () async {
+                    final changed = await Navigator.of(context).push<bool>(
+                      MaterialPageRoute(builder: (_) => AdminUserDetailScreen(userId: _rows[i].id)),
+                    );
+                    if (changed == true) load();
+                  },
+                ),
               ],
             ],
           ),
@@ -194,14 +205,16 @@ class _UserRow extends StatelessWidget {
   final AdminUserRow user;
   final void Function(AdminUserRow) onLock;
   final void Function(AdminUserRow) onUnlock;
+  final VoidCallback onTap;
 
-  const _UserRow({required this.user, required this.onLock, required this.onUnlock});
+  const _UserRow({required this.user, required this.onLock, required this.onUnlock, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final u = user;
     final name = u.fullName.trim();
     return ListTile(
+      onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: CircleAvatar(
         backgroundColor: u.isLocked ? AppColors.surfaceMuted : AppColors.surfacePink,

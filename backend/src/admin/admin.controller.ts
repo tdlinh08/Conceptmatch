@@ -10,6 +10,7 @@ import {
 import { AdminService } from './admin.service';
 import { QueryAdminStudiosDto } from './dto/query-admin-studios.dto';
 import { QueryAuditLogsDto } from './dto/query-audit-logs.dto';
+import { QueryAdminBookingsDto } from './dto/query-admin-bookings.dto';
 import { RejectStudioDto } from './dto/reject-studio.dto';
 import { QueryUsersDto } from './dto/query-users.dto';
 import { LockUserDto } from './dto/lock-user.dto';
@@ -78,6 +79,17 @@ export class AdminController {
   @Get('users')
   findUsers(@Query() query: QueryUsersDto) {
     return this.adminService.findUsers(query);
+  }
+
+  @Get('users/:id')
+  findUser(@Param('id', ParseUUIDPipe) id: string) {
+    return this.adminService.findUser(id);
+  }
+
+  /** Mọi đơn đặt trên sàn — chỉ xem. */
+  @Get('bookings')
+  findBookings(@Query() query: QueryAdminBookingsDto) {
+    return this.adminService.findBookings(query);
   }
 
   @Patch('users/:id/lock')

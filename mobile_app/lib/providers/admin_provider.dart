@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../core/network/api_client.dart';
 import '../core/network/api_error.dart';
 import '../models/admin_models.dart';
+import '../models/stats_models.dart';
 import 'owner_studios_provider.dart' show OwnerActionException;
 
 /// Gọi API trang quản trị (/admin/*). Ném [OwnerActionException] (câu tiếng Việt) khi lỗi.
@@ -101,6 +102,47 @@ class AdminProvider extends ChangeNotifier {
         );
       }, 'Không tải được danh sách tài khoản');
 
+  Future<AdminUserDetail> user(String id) => _call(() async {
+        final res = await _api.dio.get('/admin/users/$id');
+        return AdminUserDetail.fromJson(res.data as Map<String, dynamic>);
+      }, 'Không tải được thông tin tài khoản');
+
+  /// Đơn toàn sàn (chỉ xem). [from]/[to] lọc theo ngày chụp. Trả kèm tổng tiền các đơn khớp lọc.
+  Future<({PageResult<AdminBookingRow> page, double totalAmount})> bookings({
+    String? status,
+    String? keyword,
+    String? studioId,
+    String? userId,
+    DateTime? from,
+    DateTime? to,
+    int page = 1,
+    int limit = 20,
+  }) =>
+      _call(() async {
+        String d(DateTime x) =>
+            '${x.year}-${x.month.toString().padLeft(2, '0')}-${x.day.toString().padLeft(2, '0')}';
+        final res = await _api.dio.get('/admin/bookings', queryParameters: {
+          'status': ?status,
+          if ((keyword ?? '').trim().isNotEmpty) 'keyword': keyword!.trim(),
+          'studio_id': ?studioId,
+          'user_id': ?userId,
+          if (from != null) 'from': d(from),
+          if (to != null) 'to': d(to),
+          'page': page,
+          'limit': limit,
+        });
+        final data = res.data as Map<String, dynamic>;
+        return (
+          page: PageResult(
+            (data['data'] as List)
+                .map((e) => AdminBookingRow.fromJson(e as Map<String, dynamic>))
+                .toList(),
+            data['total'] as int,
+          ),
+          totalAmount: (data['total_amount'] as num? ?? 0).toDouble(),
+        );
+      }, 'Không tải được danh sách đơn');
+
   Future<void> lockUser(String id, String reason) => _call(
         () => _api.dio.patch('/admin/users/$id/lock', data: {'reason': reason}),
         'Không khoá được tài khoản',
@@ -126,6 +168,12 @@ class AdminProvider extends ChangeNotifier {
           data['total'] as int,
         );
       }, 'Không tải được nhật ký');
+
+  /// Thống kê toàn sàn theo kỳ: '7d' | '30d' | '12m'.
+  Future<StatsReport> stats(String range) => _call(() async {
+        final res = await _api.dio.get('/stats/admin', queryParameters: {'range': range});
+        return StatsReport.fromJson(res.data as Map<String, dynamic>);
+      }, 'Không tải được thống kê');
 
   void _setPending(int n) {
     if (n == pendingStudios) return;

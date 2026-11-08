@@ -9,6 +9,7 @@ import '../profile/profile_screen.dart';
 import 'my_studios_screen.dart';
 import 'owner_booking_detail_screen.dart';
 import 'owner_bookings_screen.dart';
+import 'owner_revenue_screen.dart';
 import 'owner_studio_detail_screen.dart';
 
 /// Khung app của CHỦ STUDIO: Lịch đặt · Studio · Thông báo · Cá nhân.
@@ -23,7 +24,9 @@ class OwnerShell extends StatefulWidget {
 class _OwnerShellState extends State<OwnerShell> {
   static const _bookingsTab = 0;
   static const _studiosTab = 1;
-  static const _notificationsTab = 2;
+  static const _revenueTab = 2;
+  static const _notificationsTab = 3;
+  final _revenueKey = GlobalKey<OwnerRevenueScreenState>();
 
   int _index = _bookingsTab;
   late final List<Widget> _screens;
@@ -34,6 +37,7 @@ class _OwnerShellState extends State<OwnerShell> {
     _screens = [
       const OwnerBookingsScreen(),
       const MyStudiosScreen(),
+      OwnerRevenueScreen(key: _revenueKey),
       NotificationsScreen(onOpen: _openNotification),
       const ProfileScreen(),
     ];
@@ -67,6 +71,8 @@ class _OwnerShellState extends State<OwnerShell> {
         context.read<OwnerBookingsProvider>().refreshAll();
       case _studiosTab:
         context.read<OwnerStudiosProvider>().fetchMine();
+      case _revenueTab:
+        _revenueKey.currentState?.load();
       case _notificationsTab:
         context.read<NotificationsProvider>().fetch();
     }
@@ -100,6 +106,11 @@ class _OwnerShellState extends State<OwnerShell> {
             icon: Icon(Icons.storefront_outlined),
             selectedIcon: Icon(Icons.storefront),
             label: 'Studio',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.insights_outlined),
+            selectedIcon: Icon(Icons.insights),
+            label: 'Doanh thu',
           ),
           NavigationDestination(
             icon: Badge(

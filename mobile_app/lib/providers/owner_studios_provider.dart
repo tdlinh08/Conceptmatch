@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../core/network/api_client.dart';
 import '../core/network/api_error.dart';
 import '../models/owner_studio_model.dart';
+import '../models/stats_models.dart';
 
 /// 1 kết quả tìm địa chỉ.
 class AddressResult {
@@ -246,6 +247,15 @@ class OwnerStudiosProvider extends ChangeNotifier {
             .map((e) => AddressResult.fromJson(e as Map<String, dynamic>))
             .toList();
       }, 'Không tìm được địa chỉ');
+
+  /// Báo cáo doanh thu của tôi (mọi studio hoặc 1 studio) theo kỳ '7d' | '30d' | '12m'.
+  Future<StatsReport> stats(String range, {String? studioId}) => _call(() async {
+        final res = await _api.dio.get('/stats/owner', queryParameters: {
+          'range': range,
+          'studio_id': ?studioId,
+        });
+        return StatsReport.fromJson(res.data as Map<String, dynamic>);
+      }, 'Không tải được báo cáo doanh thu');
 
   /// Các concept đang có trên hệ thống -> gợi ý khi đặt concept cho bối cảnh.
   Future<List<String>> fetchStyleTags() async {

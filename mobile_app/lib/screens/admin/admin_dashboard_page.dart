@@ -85,7 +85,11 @@ class AdminDashboardPageState extends State<AdminDashboardPage> {
               icon: Icons.pending_actions_rounded,
               label: 'Studio chờ duyệt',
               value: '${d.pendingStudios}',
-              hint: d.pendingStudios > 0 ? 'Bấm để xử lý' : 'Không có hồ sơ chờ',
+              hint: d.pendingStudios == 0
+                  ? 'Không có hồ sơ chờ'
+                  : d.pendingOverdue > 0
+                      ? '${d.pendingOverdue} hồ sơ chờ quá 24 giờ — bấm để xử lý'
+                      : 'Bấm để xử lý',
               highlight: d.pendingStudios > 0,
               onTap: widget.onOpenPending,
             ),

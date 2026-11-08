@@ -4,7 +4,9 @@ import '../../core/theme/app_theme.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/auth_provider.dart';
 import 'admin_audit_page.dart';
+import 'admin_bookings_page.dart';
 import 'admin_dashboard_page.dart';
+import 'admin_stats_page.dart';
 import 'admin_studios_page.dart';
 import 'admin_users_page.dart';
 
@@ -20,12 +22,16 @@ class AdminShell extends StatefulWidget {
 class _AdminShellState extends State<AdminShell> {
   int _index = 0;
   final _dashboardKey = GlobalKey<AdminDashboardPageState>();
+  final _statsKey = GlobalKey<AdminStatsPageState>();
   final _studiosKey = GlobalKey<AdminStudiosPageState>();
+  final _bookingsKey = GlobalKey<AdminBookingsPageState>();
   final _usersKey = GlobalKey<AdminUsersPageState>();
   final _auditKey = GlobalKey<AdminAuditPageState>();
   late final List<Widget> _pages = [
-    AdminDashboardPage(key: _dashboardKey, onOpenPending: () => _select(1)),
+    AdminDashboardPage(key: _dashboardKey, onOpenPending: () => _select(2)),
+    AdminStatsPage(key: _statsKey),
     AdminStudiosPage(key: _studiosKey),
+    AdminBookingsPage(key: _bookingsKey),
     AdminUsersPage(key: _usersKey),
     AdminAuditPage(key: _auditKey),
   ];
@@ -37,10 +43,14 @@ class _AdminShellState extends State<AdminShell> {
       case 0:
         _dashboardKey.currentState?.load();
       case 1:
-        _studiosKey.currentState?.load();
+        _statsKey.currentState?.load();
       case 2:
-        _usersKey.currentState?.load();
+        _studiosKey.currentState?.load();
       case 3:
+        _bookingsKey.currentState?.load();
+      case 4:
+        _usersKey.currentState?.load();
+      case 5:
         _auditKey.currentState?.load();
     }
   }
@@ -79,7 +89,9 @@ class _AdminShellState extends State<AdminShell> {
 
     final items = [
       (const Icon(Icons.dashboard_outlined), const Icon(Icons.dashboard), 'Tổng quan'),
+      (const Icon(Icons.insights_outlined), const Icon(Icons.insights), 'Thống kê'),
       (studioIcon(Icons.storefront_outlined), studioIcon(Icons.storefront), 'Studio'),
+      (const Icon(Icons.receipt_long_outlined), const Icon(Icons.receipt_long), 'Đơn đặt'),
       (const Icon(Icons.people_alt_outlined), const Icon(Icons.people_alt), 'Người dùng'),
       (const Icon(Icons.history_outlined), const Icon(Icons.history), 'Nhật ký'),
     ];
@@ -165,6 +177,8 @@ class _AdminShellState extends State<AdminShell> {
           ),
           body: body,
           bottomNavigationBar: NavigationBar(
+            // 6 mục trên điện thoại: chỉ hiện chữ ở mục đang chọn cho đỡ chật
+            labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
             selectedIndex: _index,
             onDestinationSelected: _select,
             destinations: [

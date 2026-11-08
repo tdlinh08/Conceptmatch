@@ -10,6 +10,7 @@ import '../../providers/owner_studios_provider.dart' show OwnerActionException;
 import '../map/studio_mini_map.dart';
 import '../owner/widgets/studio_status_badge.dart';
 import '../studios/widgets/photo_viewer.dart';
+import 'admin_bookings_page.dart';
 import 'admin_ui.dart';
 
 /// Hồ sơ 1 studio để admin xem xét: ảnh, thông tin, vị trí, bối cảnh + gói, nhân sự, dịch vụ.
@@ -252,6 +253,14 @@ class _AdminStudioDetailScreenState extends State<AdminStudioDetailScreen> {
                 // ---- Chủ studio + thông tin ----
                 AdminCard(
                   title: 'Thông tin',
+                  trailing: s.status == StudioStatus.pending
+                      ? null
+                      : TextButton.icon(
+                          onPressed: () => AdminBookingsPage.open(context,
+                              studioId: s.id, title: 'Đơn của ${s.name}'),
+                          icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                          label: const Text('Xem đơn đặt'),
+                        ),
                   children: [
                     _Info(Icons.person_outline_rounded,
                         'Chủ studio: ${d.ownerName} · ${d.ownerEmail}${d.ownerStatus == 'locked' ? ' (đang bị khoá)' : ''}'),

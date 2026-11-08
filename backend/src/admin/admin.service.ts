@@ -12,6 +12,11 @@ import { RejectStudioDto } from './dto/reject-studio.dto';
 import { LockUserDto } from './dto/lock-user.dto';
 import { QueryAdminStudiosDto } from './dto/query-admin-studios.dto';
 import { QueryAuditLogsDto } from './dto/query-audit-logs.dto';
+import { QueryAdminBookingsDto } from './dto/query-admin-bookings.dto';
+
+/** Hồ sơ chờ duyệt quá thời hạn này thì đánh dấu "quá hạn" (SRS 3.4.1). */
+const REVIEW_SLA_HOURS = 24;
+const slaDeadline = () => new Date(Date.now() - REVIEW_SLA_HOURS * 3600 * 1000);
 import { StudiosService } from '../studios/studios.service';
 import { normalizeSearch, searchWords } from '../common/search-text';
 import { Prisma } from '@prisma/client';
@@ -72,6 +77,7 @@ export class AdminService {
           reject_reason: true,
           avg_rating: true,
           created_at: true,
+          updated_at: true,
           owner: { select: { id: true, full_name: true, email: true } },
           images: { where: { is_cover: true }, take: 1, select: { url: true } },
           _count: { select: { sets: true, images: true, bookings: true } },
@@ -92,6 +98,9 @@ export class AdminService {
         reject_reason: s.reject_reason,
         avg_rating: Number(s.avg_rating),
         created_at: s.created_at,
+        // Hồ sơ chờ duyệt: tính từ lần gửi / sửa gần nhất; quá 24 giờ -> quá hạn xử lý
+        waiting_since: s.status === 'pending' ? s.updated_at : null,
+        overdue: s.status === 'pending' && s.updated_at < slaDeadline(),
         owner: s.owner,
         cover_image: s.images[0]?.url ?? null,
         set_count: s._count.sets,
@@ -148,6 +157,161 @@ export class AdminService {
       id: studioId,
       status: 'rejected',
       ...(aiWarning && { warnings: [aiWarning] }),
+    };
+  }
+
+  /** Chi tiết 1 tài khoản: thông tin, số liệu, đơn gần đây, đánh giá, studio sở hữu, lịch sử khoá. */
+  async findUser(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        full_name: true,
+        email: true,
+        role: true,
+        status: true,
+        avatar_url: true,
+        created_at: true,
+      },
+    });
+    if (!user) throw new NotFoundException('Tài khoản không tồn tại');
+
+    const [byStatus, spent, recent, reviews, studios, logs] = await Promise.all([
+      this.prisma.booking.groupBy({ by: ['status'], where: { user_id: id }, _count: { _all: true } }),
+      this.prisma.booking.aggregate({
+        where: { user_id: id, status: 'completed' },
+        _sum: { total_amount: true },
+      }),
+      this.prisma.booking.findMany({
+        where: { user_id: id },
+        orderBy: { created_at: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          start_time: true,
+          status: true,
+          total_amount: true,
+          cancel_reason: true,
+          studio: { select: { name: true } },
+          set: { select: { name: true } },
+        },
+      }),
+      this.prisma.review.findMany({
+        where: { user_id: id },
+        orderBy: { created_at: 'desc' },
+        take: 10,
+        select: { id: true, stars: true, comment: true, created_at: true, studio: { select: { name: true } } },
+      }),
+      this.prisma.studio.findMany({
+        where: { owner_id: id },
+        orderBy: { created_at: 'asc' },
+        select: { id: true, name: true, status: true, district: true, avg_rating: true },
+      }),
+      this.prisma.auditLog.findMany({
+        where: { target_type: 'user', target_id: id },
+        orderBy: { created_at: 'desc' },
+        take: 20,
+        include: { admin: { select: { full_name: true } } },
+      }),
+    ]);
+
+    return {
+      ...user,
+      booking_counts: Object.fromEntries(byStatus.map((b) => [b.status, b._count._all])),
+      total_spent: Number(spent._sum.total_amount ?? 0),
+      recent_bookings: recent.map((b) => ({
+        id: b.id,
+        start_time: b.start_time,
+        status: b.status,
+        total_amount: Number(b.total_amount),
+        cancel_reason: b.cancel_reason,
+        studio_name: b.studio.name,
+        set_name: b.set.name,
+      })),
+      reviews: reviews.map((r) => ({
+        id: r.id,
+        stars: r.stars,
+        comment: r.comment,
+        created_at: r.created_at,
+        studio_name: r.studio.name,
+      })),
+      studios: studios.map((s) => ({ ...s, avg_rating: Number(s.avg_rating) })),
+      history: logs.map((l) => ({
+        action: l.action,
+        note: l.note,
+        admin_name: l.admin.full_name,
+        created_at: l.created_at,
+      })),
+    };
+  }
+
+  /** Mọi đơn đặt trên sàn (chỉ xem — admin không sửa dữ liệu giao dịch, theo SRS 3.4.2). */
+  async findBookings(q: QueryAdminBookingsDto) {
+    const { status, studio_id, user_id, keyword, from, to, page, limit } = q;
+    const kw = keyword?.trim();
+    // Ngày chụp theo giờ VN: from 00:00 -> to 23:59:59 (giờ máy chủ đã đặt múi VN)
+    const fromDate = from ? new Date(`${from.slice(0, 10)}T00:00:00`) : undefined;
+    const toDate = to ? new Date(`${to.slice(0, 10)}T00:00:00`) : undefined;
+    if (toDate) toDate.setDate(toDate.getDate() + 1);
+    const where: Prisma.BookingWhereInput = {
+      ...(status && { status }),
+      ...(studio_id && { studio_id }),
+      ...(user_id && { user_id }),
+      ...((fromDate || toDate) && {
+        start_time: { ...(fromDate && { gte: fromDate }), ...(toDate && { lt: toDate }) },
+      }),
+      ...(kw && {
+        OR: [
+          { user: { full_name: { contains: kw, mode: 'insensitive' as const } } },
+          { user: { email: { contains: kw, mode: 'insensitive' as const } } },
+          { studio: { name: { contains: kw, mode: 'insensitive' as const } } },
+        ],
+      }),
+    };
+    const [rows, total, sum] = await this.prisma.$transaction([
+      this.prisma.booking.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { start_time: 'desc' },
+        select: {
+          id: true,
+          start_time: true,
+          end_time: true,
+          status: true,
+          num_people: true,
+          package_name: true,
+          total_amount: true,
+          deposit_amount: true,
+          cancel_reason: true,
+          special_note: true,
+          created_at: true,
+          user: { select: { id: true, full_name: true, email: true } },
+          studio: { select: { id: true, name: true } },
+          set: { select: { name: true } },
+          addons: { select: { name: true, amount: true, staff: { select: { full_name: true } } } },
+        },
+      }),
+      this.prisma.booking.count({ where }),
+      this.prisma.booking.aggregate({ where, _sum: { total_amount: true } }),
+    ]);
+    return {
+      data: rows.map((b) => ({
+        ...b,
+        total_amount: Number(b.total_amount),
+        deposit_amount: Number(b.deposit_amount),
+        set_name: b.set.name,
+        set: undefined,
+        addons: b.addons.map((a) => ({
+          name: a.name,
+          amount: Number(a.amount),
+          staff_name: a.staff?.full_name ?? null,
+        })),
+      })),
+      total,
+      total_amount: Number(sum._sum.total_amount ?? 0), // tổng tiền các đơn khớp bộ lọc
+      page,
+      limit,
     };
   }
 
@@ -442,7 +606,7 @@ export class AdminService {
     }));
 
     // Bổ sung cho trang tổng quan: người dùng theo vai trò, đơn tháng này theo trạng thái
-    const [usersByRole, bookingsByStatus, newUsersThisMonth] = await Promise.all([
+    const [usersByRole, bookingsByStatus, newUsersThisMonth, pendingOverdue] = await Promise.all([
       this.prisma.user.groupBy({ by: ['role'], _count: { _all: true } }),
       this.prisma.booking.groupBy({
         by: ['status'],
@@ -450,6 +614,7 @@ export class AdminService {
         _count: { _all: true },
       }),
       this.prisma.user.count({ where: { created_at: { gte: startOfMonth() } } }),
+      this.prisma.studio.count({ where: { status: 'pending', updated_at: { lt: slaDeadline() } } }),
     ]);
 
     return {
@@ -460,6 +625,8 @@ export class AdminService {
       revenue_this_month: Number(revenueAgg._sum.total_amount ?? 0),
       top_studios: top_studios.map((t) => ({ ...t, avg_rating: Number(t.avg_rating) })),
       new_users_this_month: newUsersThisMonth,
+      pending_overdue: pendingOverdue, // hồ sơ chờ duyệt quá 24 giờ
+      review_sla_hours: REVIEW_SLA_HOURS,
       users_by_role: Object.fromEntries(usersByRole.map((u) => [u.role, u._count._all])),
       bookings_this_month: Object.fromEntries(bookingsByStatus.map((b) => [b.status, b._count._all])),
     };

@@ -97,7 +97,7 @@ class AdminStudiosPageState extends State<AdminStudiosPage> {
   Widget build(BuildContext context) {
     return AdminPage(
       title: 'Studio',
-      subtitle: 'Duyệt hồ sơ studio mới, xem và gỡ studio vi phạm',
+      subtitle: 'Duyệt hồ sơ studio mới (xử lý trong 24 giờ), xem và gỡ studio vi phạm',
       onRefresh: load,
       children: [
         Wrap(
@@ -236,7 +236,8 @@ class _StudioRow extends StatelessWidget {
                     style: const TextStyle(fontSize: 13, color: AppColors.textBody),
                   ),
                   Text(
-                    'Chủ: ${r.ownerName} (${r.ownerEmail}) · gửi ${fmtDate(r.createdAt)}',
+                    'Chủ: ${r.ownerName} (${r.ownerEmail}) · '
+                    '${r.waitingSince != null ? 'chờ từ ${fmtDateTime(r.waitingSince!)}' : 'tạo ${fmtDate(r.createdAt)}'}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
@@ -256,6 +257,20 @@ class _StudioRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 StudioStatusBadge(status: r.status),
+                if (r.overdue)
+                  // Hồ sơ chờ quá 24 giờ (SRS 3.4.1)
+                  Container(
+                    margin: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.statusError,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      'Quá 24 giờ',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+                    ),
+                  ),
                 const SizedBox(height: 6),
                 Text(
                   '${r.setCount} bối cảnh · ${r.imageCount} ảnh',
