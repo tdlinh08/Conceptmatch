@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import 'admin_audit_page.dart';
 import 'admin_bookings_page.dart';
 import 'admin_dashboard_page.dart';
+import 'admin_reports_page.dart';
 import 'admin_stats_page.dart';
 import 'admin_studios_page.dart';
 import 'admin_users_page.dart';
@@ -26,13 +27,19 @@ class _AdminShellState extends State<AdminShell> {
   final _studiosKey = GlobalKey<AdminStudiosPageState>();
   final _bookingsKey = GlobalKey<AdminBookingsPageState>();
   final _usersKey = GlobalKey<AdminUsersPageState>();
+  final _reportsKey = GlobalKey<AdminReportsPageState>();
   final _auditKey = GlobalKey<AdminAuditPageState>();
   late final List<Widget> _pages = [
-    AdminDashboardPage(key: _dashboardKey, onOpenPending: () => _select(2)),
+    AdminDashboardPage(
+      key: _dashboardKey,
+      onOpenPending: () => _select(2),
+      onOpenReports: () => _select(5),
+    ),
     AdminStatsPage(key: _statsKey),
     AdminStudiosPage(key: _studiosKey),
     AdminBookingsPage(key: _bookingsKey),
     AdminUsersPage(key: _usersKey),
+    AdminReportsPage(key: _reportsKey),
     AdminAuditPage(key: _auditKey),
   ];
 
@@ -51,6 +58,8 @@ class _AdminShellState extends State<AdminShell> {
       case 4:
         _usersKey.currentState?.load();
       case 5:
+        _reportsKey.currentState?.load();
+      case 6:
         _auditKey.currentState?.load();
     }
   }
@@ -79,6 +88,7 @@ class _AdminShellState extends State<AdminShell> {
   @override
   Widget build(BuildContext context) {
     final pending = context.watch<AdminProvider>().pendingStudios;
+    final reports = context.watch<AdminProvider>().pendingReports;
     final user = context.watch<AuthProvider>().currentUser;
 
     Widget studioIcon(IconData icon) => Badge(
@@ -93,6 +103,11 @@ class _AdminShellState extends State<AdminShell> {
       (studioIcon(Icons.storefront_outlined), studioIcon(Icons.storefront), 'Studio'),
       (const Icon(Icons.receipt_long_outlined), const Icon(Icons.receipt_long), 'Đơn đặt'),
       (const Icon(Icons.people_alt_outlined), const Icon(Icons.people_alt), 'Người dùng'),
+      (
+        Badge(isLabelVisible: reports > 0, label: Text('$reports'), child: const Icon(Icons.flag_outlined)),
+        Badge(isLabelVisible: reports > 0, label: Text('$reports'), child: const Icon(Icons.flag)),
+        'Báo cáo',
+      ),
       (const Icon(Icons.history_outlined), const Icon(Icons.history), 'Nhật ký'),
     ];
     final body = IndexedStack(index: _index, children: _pages);
@@ -163,29 +178,40 @@ class _AdminShellState extends State<AdminShell> {
             ),
           );
         }
-        // ---- Điện thoại ----
+        // ---- Điện thoại: 7 mục nên dùng menu trượt (Drawer) thay cho thanh dưới ----
+        final title = items[_index].$3;
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Quản trị ConceptMatch'),
+            title: Text(title),
             actions: [
-              IconButton(
-                tooltip: 'Đăng xuất',
-                onPressed: _logout,
-                icon: const Icon(Icons.logout_rounded),
+              IconButton(tooltip: 'Đăng xuất', onPressed: _logout, icon: const Icon(Icons.logout_rounded)),
+            ],
+          ),
+          drawer: NavigationDrawer(
+            selectedIndex: _index,
+            onDestinationSelected: (i) {
+              Navigator.of(context).pop(); // đóng menu
+              _select(i);
+            },
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(28, 20, 16, 12),
+                child: Row(
+                  children: [
+                    Image.asset('assets/images/logo.png', width: 32, height: 32),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Quản trị ConceptMatch',
+                      style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textTitle),
+                    ),
+                  ],
+                ),
               ),
+              for (final (icon, selected, label) in items)
+                NavigationDrawerDestination(icon: icon, selectedIcon: selected, label: Text(label)),
             ],
           ),
           body: body,
-          bottomNavigationBar: NavigationBar(
-            // 6 mục trên điện thoại: chỉ hiện chữ ở mục đang chọn cho đỡ chật
-            labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
-            selectedIndex: _index,
-            onDestinationSelected: _select,
-            destinations: [
-              for (final (icon, selected, label) in items)
-                NavigationDestination(icon: icon, selectedIcon: selected, label: label),
-            ],
-          ),
         );
       },
     );

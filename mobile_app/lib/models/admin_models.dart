@@ -11,6 +11,7 @@ class AdminDashboard {
   final int newUsersThisMonth;
   final int bookingsToday;
   final int pendingOverdue; // hồ sơ chờ duyệt quá 24 giờ
+  final int pendingReports; // báo cáo vi phạm chờ xử lý
   final double revenueThisMonth;
   final Map<String, int> usersByRole; // user / studio_owner / admin
   final Map<String, int> bookingsThisMonth; // theo trạng thái
@@ -23,6 +24,7 @@ class AdminDashboard {
     required this.newUsersThisMonth,
     required this.bookingsToday,
     this.pendingOverdue = 0,
+    this.pendingReports = 0,
     required this.revenueThisMonth,
     required this.usersByRole,
     required this.bookingsThisMonth,
@@ -39,6 +41,7 @@ class AdminDashboard {
         newUsersThisMonth: j['new_users_this_month'] as int? ?? 0,
         bookingsToday: j['total_bookings_today'] as int? ?? 0,
         pendingOverdue: j['pending_overdue'] as int? ?? 0,
+        pendingReports: j['pending_reports'] as int? ?? 0,
         revenueThisMonth: (j['revenue_this_month'] as num? ?? 0).toDouble(),
         usersByRole: _counts(j['users_by_role']),
         bookingsThisMonth: _counts(j['bookings_this_month']),
@@ -211,7 +214,7 @@ class AdminUserDetail {
   final double totalSpent;
   final List<({String id, String studio, String set, DateTime start, String status, double amount, String? reason})>
       recentBookings;
-  final List<({String studio, int stars, String? comment, DateTime at})> reviews;
+  final List<({String id, String studio, int stars, String? comment, DateTime at, bool hidden})> reviews;
   final List<({String id, String name, String status, String district, double rating})> studios;
   final List<({String action, String? note, String admin, DateTime at})> history;
 
@@ -249,10 +252,12 @@ class AdminUserDetail {
             .toList(),
         reviews: _l(j['reviews'])
             .map((r) => (
+                  id: r['id'] as String,
                   studio: r['studio_name'] as String? ?? '',
                   stars: (r['stars'] as num).toInt(),
                   comment: r['comment'] as String?,
                   at: _date(r['created_at']),
+                  hidden: r['is_hidden'] as bool? ?? false,
                 ))
             .toList(),
         studios: _l(j['studios'])
@@ -346,6 +351,87 @@ class AdminBookingRow {
                 staff: a['staff_name'] as String?,
               ))
           .toList(),
+    );
+  }
+}
+
+/// 1 báo cáo vi phạm (GET /admin/reports).
+class ReportRow {
+  final String id;
+  final String targetType; // studio | review
+  final String targetId;
+  final String reason;
+  final String? detail;
+  final String status; // pending | resolved | dismissed
+  final String? adminNote;
+  final String? handledBy;
+  final DateTime? handledAt;
+  final DateTime createdAt;
+  final String reporterName;
+  final String reporterEmail;
+  final String reporterRole;
+  final int reportsOnTarget;
+  // Nội dung bị báo cáo
+  final String? studioName;
+  final String? studioStatus;
+  final int? reviewStars;
+  final String? reviewComment;
+  final String? reviewAuthor;
+  final String? reviewStudioName;
+  final bool reviewHidden;
+
+  ReportRow({
+    required this.id,
+    required this.targetType,
+    required this.targetId,
+    required this.reason,
+    this.detail,
+    required this.status,
+    this.adminNote,
+    this.handledBy,
+    this.handledAt,
+    required this.createdAt,
+    required this.reporterName,
+    required this.reporterEmail,
+    required this.reporterRole,
+    required this.reportsOnTarget,
+    this.studioName,
+    this.studioStatus,
+    this.reviewStars,
+    this.reviewComment,
+    this.reviewAuthor,
+    this.reviewStudioName,
+    this.reviewHidden = false,
+  });
+
+  bool get isStudio => targetType == 'studio';
+
+  factory ReportRow.fromJson(Map<String, dynamic> j) {
+    final rep = j['reporter'] as Map<String, dynamic>? ?? const {};
+    final st = j['studio'] as Map<String, dynamic>?;
+    final rv = j['review'] as Map<String, dynamic>?;
+    return ReportRow(
+      id: j['id'] as String,
+      targetType: j['target_type'] as String,
+      targetId: j['target_id'] as String,
+      reason: j['reason'] as String,
+      detail: j['detail'] as String?,
+      status: j['status'] as String,
+      adminNote: j['admin_note'] as String?,
+      handledBy: j['handled_by'] as String?,
+      handledAt: j['handled_at'] == null ? null : _date(j['handled_at']),
+      createdAt: _date(j['created_at']),
+      reporterName: rep['full_name'] as String? ?? '',
+      reporterEmail: rep['email'] as String? ?? '',
+      reporterRole: rep['role'] as String? ?? 'user',
+      reportsOnTarget: (j['reports_on_target'] as num? ?? 1).toInt(),
+      studioName: st?['name'] as String?,
+      studioStatus: st?['status'] as String?,
+      reviewStars: (rv?['stars'] as num?)?.toInt(),
+      reviewComment: rv?['comment'] as String?,
+      reviewAuthor: (rv?['user'] as Map<String, dynamic>?)?['full_name'] as String?,
+      reviewStudioName: (rv?['studio'] as Map<String, dynamic>?)?['name'] as String?,
+      reviewHidden: rv?['is_hidden'] as bool? ?? false,
     );
   }
 }

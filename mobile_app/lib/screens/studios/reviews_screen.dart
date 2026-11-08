@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/review_model.dart';
 import '../../providers/studios_provider.dart';
 import 'widgets/review_card.dart';
+import '../report/report_sheet.dart';
 
 /// Màn "Tất cả đánh giá" của 1 studio — tải từng trang 10 đánh giá,
 /// cuộn gần cuối thì tải tiếp (GET /studios/:id/reviews?page=&limit=).
@@ -92,7 +93,10 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
             count: _page == 0 ? widget.reviewCount : _total,
           ),
           const SizedBox(height: 20),
-          ..._items.map((r) => ReviewCard(review: r)),
+          ..._items.map((r) => ReviewCard(
+                review: r,
+                onReport: () => showReportSheet(context, targetType: 'review', targetId: r.id),
+              )),
           if (_loading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),

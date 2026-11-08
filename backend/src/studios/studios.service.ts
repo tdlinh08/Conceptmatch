@@ -576,7 +576,7 @@ export class StudiosService {
 
     const [data, total] = await this.prisma.$transaction([
       this.prisma.review.findMany({
-        where: { studio_id: studioId },
+        where: { studio_id: studioId, is_hidden: false }, // đánh giá bị admin ẩn không hiện công khai
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { created_at: 'desc' },
@@ -588,7 +588,7 @@ export class StudiosService {
           user: { select: { full_name: true, avatar_url: true } },
         },
       }),
-      this.prisma.review.count({ where: { studio_id: studioId } }),
+      this.prisma.review.count({ where: { studio_id: studioId, is_hidden: false } }),
     ]);
 
     return { data, total };

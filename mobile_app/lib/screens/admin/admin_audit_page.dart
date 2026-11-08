@@ -59,6 +59,9 @@ class AdminAuditPageState extends State<AdminAuditPage> {
     if (action.contains('Phê duyệt')) return Icons.check_circle_outline_rounded;
     if (action.contains('Từ chối')) return Icons.cancel_outlined;
     if (action.contains('Gỡ')) return Icons.remove_circle_outline_rounded;
+    if (action.contains('Ẩn')) return Icons.visibility_off_outlined;
+    if (action.contains('Hiện lại')) return Icons.visibility_outlined;
+    if (action.contains('báo cáo')) return Icons.flag_outlined;
     if (action.contains('Mở khóa')) return Icons.lock_open_rounded;
     if (action.contains('Khóa')) return Icons.lock_outline_rounded;
     return Icons.history_rounded;
@@ -74,7 +77,7 @@ class AdminAuditPageState extends State<AdminAuditPage> {
         Wrap(
           spacing: 8,
           children: [
-            for (final (value, label) in [(null, 'Tất cả'), ('studio', 'Studio'), ('user', 'Tài khoản')])
+            for (final (value, label) in [(null, 'Tất cả'), ('studio', 'Studio'), ('user', 'Tài khoản'), ('review', 'Đánh giá')])
               ChoiceChip(
                 label: Text(label),
                 selected: _type == value,

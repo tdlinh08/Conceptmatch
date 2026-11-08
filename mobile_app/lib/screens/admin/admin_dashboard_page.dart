@@ -10,8 +10,9 @@ import 'admin_ui.dart';
 /// Trang TỔNG QUAN: số studio, người dùng, đơn, doanh thu, top studio.
 class AdminDashboardPage extends StatefulWidget {
   final VoidCallback onOpenPending; // bấm ô "Chờ duyệt" -> sang trang Studio
+  final VoidCallback? onOpenReports; // bấm ô "Báo cáo vi phạm" -> sang trang Báo cáo
 
-  const AdminDashboardPage({super.key, required this.onOpenPending});
+  const AdminDashboardPage({super.key, required this.onOpenPending, this.onOpenReports});
 
   @override
   State<AdminDashboardPage> createState() => AdminDashboardPageState();
@@ -92,6 +93,14 @@ class AdminDashboardPageState extends State<AdminDashboardPage> {
                       : 'Bấm để xử lý',
               highlight: d.pendingStudios > 0,
               onTap: widget.onOpenPending,
+            ),
+            StatCard(
+              icon: Icons.flag_outlined,
+              label: 'Báo cáo vi phạm chờ xử lý',
+              value: '${d.pendingReports}',
+              hint: d.pendingReports > 0 ? 'Bấm để xem' : 'Không có báo cáo mới',
+              highlight: d.pendingReports > 0,
+              onTap: widget.onOpenReports,
             ),
             StatCard(
               icon: Icons.storefront_rounded,

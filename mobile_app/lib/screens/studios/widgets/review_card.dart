@@ -5,8 +5,9 @@ import '../../../models/review_model.dart';
 /// Thẻ 1 đánh giá — dùng chung cho màn chi tiết studio và màn "Tất cả đánh giá".
 class ReviewCard extends StatelessWidget {
   final ReviewModel review;
+  final VoidCallback? onReport; // có -> hiện menu "Báo cáo đánh giá"
 
-  const ReviewCard({super.key, required this.review});
+  const ReviewCard({super.key, required this.review, this.onReport});
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +79,16 @@ class ReviewCard extends StatelessWidget {
                   ),
                 ),
               ),
+              if (onReport != null)
+                PopupMenuButton<String>(
+                  tooltip: 'Tuỳ chọn',
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.more_vert_rounded, size: 18, color: AppColors.textFaint),
+                  onSelected: (_) => onReport!(),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'report', child: Text('Báo cáo đánh giá')),
+                  ],
+                ),
             ],
           ),
           if (review.comment != null && review.comment!.trim().isNotEmpty) ...[

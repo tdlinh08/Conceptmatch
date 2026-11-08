@@ -14,6 +14,7 @@ import 'widgets/review_card.dart';
 import 'widgets/package_card.dart';
 import 'widgets/photo_viewer.dart';
 import 'set_detail_screen.dart';
+import '../report/report_sheet.dart';
 import '../../core/utils/maps_launcher.dart';
 import '../map/studio_mini_map.dart';
 
@@ -520,7 +521,10 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
               style: TextStyle(fontSize: 14, height: 1.5, color: AppColors.textBody),
             )
           else ...[
-            ..._reviews.map((r) => ReviewCard(review: r)),
+            ..._reviews.map((r) => ReviewCard(
+                  review: r,
+                  onReport: () => showReportSheet(context, targetType: 'review', targetId: r.id),
+                )),
             // Màn chi tiết chỉ hiện 3 đánh giá mới nhất -> có nút xem toàn bộ
             if (detail.reviewCount > _reviews.length)
               OutlinedButton(
@@ -537,6 +541,15 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
                 child: Text('Xem tất cả ${detail.reviewCount} đánh giá'),
               ),
           ],
+          const SizedBox(height: 24),
+          Center(
+            child: TextButton.icon(
+              onPressed: () => showReportSheet(context, targetType: 'studio', targetId: detail.id),
+              style: TextButton.styleFrom(foregroundColor: AppColors.textFaint),
+              icon: const Icon(Icons.flag_outlined, size: 18),
+              label: const Text('Báo cáo studio vi phạm'),
+            ),
+          ),
         ],
       ),
     );

@@ -9,6 +9,7 @@ import '../../providers/owner_bookings_provider.dart';
 import '../../providers/owner_studios_provider.dart';
 import '../bookings/widgets/booking_status_badge.dart';
 import 'widgets/owner_ui.dart';
+import '../report/report_sheet.dart';
 
 /// Chi tiết 1 đơn phía chủ studio + các nút xử lý theo trạng thái:
 /// Chờ xác nhận -> Xác nhận (chọn thợ nếu có dịch vụ) / Từ chối (kèm lý do);
@@ -282,6 +283,24 @@ class _OwnerBookingDetailScreenState extends State<OwnerBookingDetailScreen> {
                   style: const TextStyle(fontSize: 14, height: 1.5, color: AppColors.textBody),
                 ),
               ],
+              if (b.reviewHidden)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Đánh giá này đã bị quản trị viên ẩn (không hiện công khai, không tính điểm).',
+                    style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+                  ),
+                )
+              else if (b.reviewId != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => showReportSheet(context, targetType: 'review', targetId: b.reviewId!),
+                    style: TextButton.styleFrom(foregroundColor: AppColors.textFaint),
+                    icon: const Icon(Icons.flag_outlined, size: 18),
+                    label: const Text('Báo cáo đánh giá không đúng sự thật'),
+                  ),
+                ),
             ],
           ),
       ],

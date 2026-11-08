@@ -11,6 +11,7 @@ class AdminProvider extends ChangeNotifier {
   final _api = ApiClient();
 
   int pendingStudios = 0;
+  int pendingReports = 0;
 
   Future<T> _call<T>(Future<T> Function() fn, String fallback) async {
     try {
@@ -24,6 +25,7 @@ class AdminProvider extends ChangeNotifier {
         final res = await _api.dio.get('/admin/dashboard');
         final d = AdminDashboard.fromJson(res.data as Map<String, dynamic>);
         _setPending(d.pendingStudios);
+        _setReports(d.pendingReports);
         return d;
       }, 'Không tải được số liệu tổng quan');
 
@@ -175,6 +177,50 @@ class AdminProvider extends ChangeNotifier {
         return StatsReport.fromJson(res.data as Map<String, dynamic>);
       }, 'Không tải được thống kê');
 
+  // ---- Báo cáo vi phạm + kiểm duyệt đánh giá ----
+
+  Future<PageResult<ReportRow>> reports({required String status, int page = 1, int limit = 20}) =>
+      _call(() async {
+        final res = await _api.dio.get('/admin/reports', queryParameters: {
+          'status': status,
+          'page': page,
+          'limit': limit,
+        });
+        final data = res.data as Map<String, dynamic>;
+        _setReports((data['pending_count'] as num? ?? 0).toInt());
+        return PageResult(
+          (data['data'] as List).map((e) => ReportRow.fromJson(e as Map<String, dynamic>)).toList(),
+          data['total'] as int,
+        );
+      }, 'Không tải được báo cáo');
+
+  /// action: 'hide_review' | 'take_down' | 'none'
+  Future<void> resolveReport(String id, String action, String note) => _call(
+        () => _api.dio.patch('/admin/reports/$id/resolve', data: {'action': action, 'note': note}),
+        'Không xử lý được báo cáo',
+      );
+
+  Future<void> dismissReport(String id, String note) => _call(
+        () => _api.dio.patch('/admin/reports/$id/dismiss', data: {'note': note}),
+        'Không cập nhật được báo cáo',
+      );
+
+  Future<void> hideReview(String id, String reason) => _call(
+        () => _api.dio.patch('/admin/reviews/$id/hide', data: {'reason': reason}),
+        'Không ẩn được đánh giá',
+      );
+
+  Future<void> unhideReview(String id) => _call(
+        () => _api.dio.patch('/admin/reviews/$id/unhide'),
+        'Không hiện lại được đánh giá',
+      );
+
+  void _setReports(int n) {
+    if (n == pendingReports) return;
+    pendingReports = n;
+    notifyListeners();
+  }
+
   void _setPending(int n) {
     if (n == pendingStudios) return;
     pendingStudios = n;
@@ -183,6 +229,7 @@ class AdminProvider extends ChangeNotifier {
 
   void reset() {
     pendingStudios = 0;
+    pendingReports = 0;
     notifyListeners();
   }
 }

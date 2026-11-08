@@ -200,7 +200,14 @@ export class AdminService {
         where: { user_id: id },
         orderBy: { created_at: 'desc' },
         take: 10,
-        select: { id: true, stars: true, comment: true, created_at: true, studio: { select: { name: true } } },
+        select: {
+          id: true,
+          stars: true,
+          comment: true,
+          is_hidden: true,
+          created_at: true,
+          studio: { select: { name: true } },
+        },
       }),
       this.prisma.studio.findMany({
         where: { owner_id: id },
@@ -232,6 +239,7 @@ export class AdminService {
         id: r.id,
         stars: r.stars,
         comment: r.comment,
+        is_hidden: r.is_hidden,
         created_at: r.created_at,
         studio_name: r.studio.name,
       })),
@@ -332,13 +340,21 @@ export class AdminService {
     // Gắn tên đối tượng (studio / người dùng) để đọc được ngay
     const studioIds = rows.filter((r) => r.target_type === 'studio').map((r) => r.target_id);
     const userIds = rows.filter((r) => r.target_type === 'user').map((r) => r.target_id);
-    const [studios, users] = await Promise.all([
+    const reviewIds = rows.filter((r) => r.target_type === 'review').map((r) => r.target_id);
+    const [studios, users, reviews] = await Promise.all([
       this.prisma.studio.findMany({ where: { id: { in: studioIds } }, select: { id: true, name: true } }),
       this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, full_name: true } }),
+      this.prisma.review.findMany({
+        where: { id: { in: reviewIds } },
+        select: { id: true, stars: true, user: { select: { full_name: true } }, studio: { select: { name: true } } },
+      }),
     ]);
     const names = new Map<string, string>([
       ...studios.map((s) => [s.id, s.name] as [string, string]),
       ...users.map((u) => [u.id, u.full_name] as [string, string]),
+      ...reviews.map(
+        (r) => [r.id, `Đánh giá ${r.stars}★ của ${r.user.full_name} về ${r.studio.name}`] as [string, string],
+      ),
     ]);
     return {
       data: rows.map((r) => ({
@@ -606,7 +622,7 @@ export class AdminService {
     }));
 
     // Bổ sung cho trang tổng quan: người dùng theo vai trò, đơn tháng này theo trạng thái
-    const [usersByRole, bookingsByStatus, newUsersThisMonth, pendingOverdue] = await Promise.all([
+    const [usersByRole, bookingsByStatus, newUsersThisMonth, pendingOverdue, pendingReports] = await Promise.all([
       this.prisma.user.groupBy({ by: ['role'], _count: { _all: true } }),
       this.prisma.booking.groupBy({
         by: ['status'],
@@ -615,6 +631,7 @@ export class AdminService {
       }),
       this.prisma.user.count({ where: { created_at: { gte: startOfMonth() } } }),
       this.prisma.studio.count({ where: { status: 'pending', updated_at: { lt: slaDeadline() } } }),
+      this.prisma.report.count({ where: { status: 'pending' } }),
     ]);
 
     return {
@@ -626,6 +643,7 @@ export class AdminService {
       top_studios: top_studios.map((t) => ({ ...t, avg_rating: Number(t.avg_rating) })),
       new_users_this_month: newUsersThisMonth,
       pending_overdue: pendingOverdue, // hồ sơ chờ duyệt quá 24 giờ
+      pending_reports: pendingReports, // báo cáo vi phạm chờ xử lý (SRS 3.4.3)
       review_sla_hours: REVIEW_SLA_HOURS,
       users_by_role: Object.fromEntries(usersByRole.map((u) => [u.role, u._count._all])),
       bookings_this_month: Object.fromEntries(bookingsByStatus.map((b) => [b.status, b._count._all])),

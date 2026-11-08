@@ -32,6 +32,9 @@ model User {
   view_histories ViewHistory[]
   favorites     Favorite[]
 
+
+  reports_sent    Report[] @relation("ReportsSent")
+  reports_handled Report[] @relation("ReportsHandled")
   @@map("users")
 }
 
@@ -274,6 +277,9 @@ model Review {
   studio_id  String
   stars      Int
   comment    String?
+  // Admin ẩn đánh giá vi phạm: không hiện công khai, không tính vào điểm trung bình
+  is_hidden     Boolean @default(false)
+  hidden_reason String?
   created_at DateTime @default(now())
 
   booking Booking @relation(fields: [booking_id], references: [id])
@@ -425,4 +431,38 @@ enum NotificationType {
   review_new
   studio_approved
   studio_rejected
+  report_handled // báo cáo vi phạm đã được admin xử lý -> báo người gửi (07/11/2026)
+}
+
+enum ReportTargetType {
+  studio
+  review
+}
+
+enum ReportStatus {
+  pending // chờ admin xử lý
+  resolved // đã xử lý (ẩn đánh giá / gỡ studio)
+  dismissed // xem xét và bỏ qua (không vi phạm)
+}
+
+// Báo cáo vi phạm do khách / chủ studio gửi (studio sai sự thật, đánh giá xúc phạm...)
+model Report {
+  id          String           @id @default(uuid())
+  reporter_id String
+  target_type ReportTargetType
+  target_id   String // id studio hoặc id đánh giá
+  reason      String           @db.VarChar(100)
+  detail      String?
+  status      ReportStatus     @default(pending)
+  admin_note  String?
+  handled_by  String?
+  handled_at  DateTime?
+  created_at  DateTime         @default(now())
+
+  reporter User  @relation("ReportsSent", fields: [reporter_id], references: [id])
+  handler  User? @relation("ReportsHandled", fields: [handled_by], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([target_type, target_id])
+  @@map("reports")
 }

@@ -402,7 +402,7 @@ export class BookingsService {
         user: {
           select: { id: true, full_name: true, email: true, avatar_url: true },
         },
-        review: { select: { stars: true, comment: true, created_at: true } },
+        review: { select: { id: true, stars: true, comment: true, is_hidden: true, created_at: true } },
         addons: { select: BOOKING_ADDON_SELECT },
       },
     });

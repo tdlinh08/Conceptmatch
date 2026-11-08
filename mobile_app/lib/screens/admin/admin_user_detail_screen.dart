@@ -71,6 +71,30 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
     }
   }
 
+  Future<void> _toggleReview(String reviewId, bool hidden) async {
+    final provider = context.read<AdminProvider>();
+    try {
+      if (hidden) {
+        await provider.unhideReview(reviewId);
+      } else {
+        final reason = await askReason(
+          context,
+          title: 'Ẩn đánh giá này?',
+          hint: 'Đánh giá sẽ không hiện công khai và không tính vào điểm studio',
+          confirmLabel: 'Ẩn',
+          quick: const ['Ngôn từ xúc phạm', 'Nội dung sai sự thật', 'Spam / quảng cáo'],
+        );
+        if (reason == null) return;
+        await provider.hideReview(reviewId, reason);
+      }
+      if (!mounted) return;
+      _toast(hidden ? 'Đã hiện lại đánh giá' : 'Đã ẩn đánh giá');
+      await _load();
+    } on OwnerActionException catch (e) {
+      if (mounted) _toast(e.message);
+    }
+  }
+
   static const _statusLabels = {
     'pending': 'Chờ xác nhận',
     'confirmed': 'Đã xác nhận',
@@ -215,13 +239,30 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
                       for (final r in d.reviews)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Column(
+                          child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('${'★' * r.stars}${'☆' * (5 - r.stars)}  ${r.studio} · ${fmtDate(r.at)}',
-                                  style: const TextStyle(color: AppColors.textTitle)),
-                              if ((r.comment ?? '').trim().isNotEmpty)
-                                Text(r.comment!.trim(), style: const TextStyle(color: AppColors.textBody)),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${'★' * r.stars}${'☆' * (5 - r.stars)}  ${r.studio} · ${fmtDate(r.at)}'
+                                      '${r.hidden ? ' · ĐÃ ẨN' : ''}',
+                                      style: TextStyle(
+                                        color: r.hidden ? AppColors.textFaint : AppColors.textTitle,
+                                      ),
+                                    ),
+                                    if ((r.comment ?? '').trim().isNotEmpty)
+                                      Text(r.comment!.trim(), style: const TextStyle(color: AppColors.textBody)),
+                                  ],
+                                ),
+                              ),
+                              // Kiểm duyệt trực tiếp: ẩn / hiện lại đánh giá
+                              TextButton(
+                                onPressed: () => _toggleReview(r.id, r.hidden),
+                                child: Text(r.hidden ? 'Hiện lại' : 'Ẩn'),
+                              ),
                             ],
                           ),
                         ),

@@ -3,8 +3,8 @@ import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class QueryAuditLogsDto {
   @IsOptional()
-  @IsIn(['studio', 'user'], { message: 'target_type phải là studio hoặc user' })
-  target_type?: 'studio' | 'user';
+  @IsIn(['studio', 'user', 'review'], { message: 'target_type phải là studio, user hoặc review' })
+  target_type?: 'studio' | 'user' | 'review';
 
   @IsOptional()
   @Type(() => Number)

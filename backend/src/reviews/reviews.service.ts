@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { recomputeStudioRating } from './rating';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateReviewDto } from './dto/create-review.dto';
@@ -57,19 +58,8 @@ export class ReviewsService {
       // (incremental), nhưng luôn chính xác tuyệt đối, không bao giờ bị lệch số
       // do lỗi cộng dồn — chấp nhận được vì tần suất review thấp hơn nhiều so
       // với booking.
-      const agg = await tx.review.aggregate({
-        where: { studio_id: booking.studio_id },
-        _avg: { stars: true },
-        _count: { stars: true },
-      });
-
-      await tx.studio.update({
-        where: { id: booking.studio_id },
-        data: {
-          avg_rating: agg._avg.stars ?? 0,
-          review_count: agg._count.stars,
-        },
-      });
+      // (Đánh giá bị admin ẩn không tính — xem src/reviews/rating.ts)
+      await recomputeStudioRating(tx, booking.studio_id);
 
       return review;
     });

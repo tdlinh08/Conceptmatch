@@ -291,6 +291,8 @@ class BookingDetail {
   final List<BookingAddonLine> addons;
   final int? reviewStars;
   final String? reviewComment;
+  final String? reviewId;
+  final bool reviewHidden; // admin đã ẩn đánh giá vi phạm
 
   // Khách đặt (chủ studio xem)
   final String? customerName;
@@ -323,6 +325,8 @@ class BookingDetail {
     required this.addons,
     this.reviewStars,
     this.reviewComment,
+    this.reviewId,
+    this.reviewHidden = false,
     this.customerName,
     this.customerEmail,
     this.customerAvatar,
@@ -363,6 +367,8 @@ class BookingDetail {
       addons: BookingAddonLine.listFrom(json['addons']),
       reviewStars: review?['stars'] as int?,
       reviewComment: review?['comment'] as String?,
+      reviewId: review?['id'] as String?,
+      reviewHidden: review?['is_hidden'] as bool? ?? false,
       customerName: (json['customer'] as Map<String, dynamic>?)?['full_name'] as String?,
       customerEmail: (json['customer'] as Map<String, dynamic>?)?['email'] as String?,
       customerAvatar: ApiConstants.mediaUrl(

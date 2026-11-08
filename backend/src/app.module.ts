@@ -16,6 +16,7 @@ import { UsersModule } from './users/users.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { GeocodeModule } from './geocode/geocode.module';
 import { StatsModule } from './stats/stats.module';
+import { ReportsModule } from './reports/reports.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 
@@ -35,6 +36,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     NotificationsModule,
     GeocodeModule,
     StatsModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [
