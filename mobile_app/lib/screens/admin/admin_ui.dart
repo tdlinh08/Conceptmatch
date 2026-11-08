@@ -104,26 +104,49 @@ class StatCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 22, color: highlight ? AppColors.accentText : AppColors.textFaint),
-              const SizedBox(height: 10),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
-                  color: AppColors.textTitle,
+        child: ConstrainedBox(
+          // Cao tối thiểu như nhau để các hàng trông đều nhau
+          constraints: const BoxConstraints(minHeight: 148),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, size: 22, color: highlight ? AppColors.accentText : AppColors.textFaint),
+                const SizedBox(height: 10),
+                FittedBox(
+                  // Số dài (vd "12.500.000đ") tự thu nhỏ thay vì xuống dòng
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.5,
+                      color: AppColors.textTitle,
+                    ),
+                  ),
                 ),
-              ),
-              Text(label, style: const TextStyle(fontSize: 13, color: AppColors.textBody)),
-              if (hint != null)
-                Text(hint!, style: const TextStyle(fontSize: 12, color: AppColors.textFaint)),
-            ],
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: AppColors.textBody),
+                ),
+                if (hint != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    hint!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, height: 1.3, color: AppColors.textFaint),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),
@@ -184,7 +207,8 @@ class AdminCard extends StatelessWidget {
   }
 }
 
-/// Lưới tự chia cột theo chiều rộng (điện thoại 2 cột, máy tính 3–4 cột).
+/// Lưới tự chia cột theo chiều rộng (điện thoại 1–2 cột, máy tính 3–5 cột).
+/// Các ô trong CÙNG MỘT HÀNG luôn cao bằng nhau (theo ô cao nhất hàng đó).
 class ResponsiveGrid extends StatelessWidget {
   final List<Widget> children;
   final double minItemWidth;
@@ -202,12 +226,27 @@ class ResponsiveGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, c) {
         final cols = (c.maxWidth / minItemWidth).floor().clamp(1, 6).toInt();
-        final w = (c.maxWidth - spacing * (cols - 1)) / cols;
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: [for (final child in children) SizedBox(width: w, child: child)],
-        );
+        final rows = <Widget>[];
+        for (var start = 0; start < children.length; start += cols) {
+          final rowItems = children.sublist(start, (start + cols).clamp(0, children.length));
+          if (rows.isNotEmpty) rows.add(SizedBox(height: spacing));
+          rows.add(
+            // IntrinsicHeight + stretch: mọi ô trong hàng kéo cao bằng ô cao nhất
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < cols; i++) ...[
+                    if (i > 0) SizedBox(width: spacing),
+                    // Hàng cuối thiếu ô: chừa chỗ trống để các ô giữ cùng độ rộng
+                    Expanded(child: i < rowItems.length ? rowItems[i] : const SizedBox.shrink()),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows);
       },
     );
   }

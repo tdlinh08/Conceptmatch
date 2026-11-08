@@ -135,14 +135,15 @@ class AdminDashboardPageState extends State<AdminDashboardPage> {
             final bookings = _BookingsByStatus(counts: d.bookingsThisMonth, labels: _statusLabels);
             final top = _TopStudios(rows: d.topStudios);
             return wide
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                // 2 hộp cạnh nhau cao bằng nhau
+                ? IntrinsicHeight(child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(child: bookings),
                       const SizedBox(width: 16),
                       Expanded(child: top),
                     ],
-                  )
+                  ))
                 : Column(children: [bookings, top]);
           },
         ),

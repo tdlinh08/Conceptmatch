@@ -171,14 +171,15 @@ class _StatsViewState extends State<StatsView> {
                   );
             final status = _StatusCard(counts: r.statusCounts, labels: _statusLabels);
             return wide
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                // 2 hộp cạnh nhau cao bằng nhau
+                ? IntrinsicHeight(child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(flex: 3, child: top),
                       const SizedBox(width: 16),
                       Expanded(flex: 2, child: status),
                     ],
-                  )
+                  ))
                 : Column(children: [top, status]);
           },
         ),
@@ -187,14 +188,15 @@ class _StatsViewState extends State<StatsView> {
             final concepts = _RankCard(title: 'Concept được đặt nhiều', rows: r.topConcepts, countLabel: 'đơn');
             final districts = _RankCard(title: 'Khu vực (quận)', rows: r.topDistricts, countLabel: 'đơn');
             return c.maxWidth >= 760
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                // 2 hộp cạnh nhau cao bằng nhau
+                ? IntrinsicHeight(child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(child: concepts),
                       const SizedBox(width: 16),
                       Expanded(child: districts),
                     ],
-                  )
+                  ))
                 : Column(children: [concepts, districts]);
           },
         ),
