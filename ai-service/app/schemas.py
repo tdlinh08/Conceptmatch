@@ -7,6 +7,7 @@ class SearchResultItem(BaseModel):
     set_id: str
     set_name: str
     avatar_url: str
+    matched_image_url: str  # ảnh (đại diện hoặc album) giống ảnh tìm kiếm nhất
     similarity_score: float
 
 
@@ -24,4 +25,5 @@ class ReindexResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    indexed_sets: int
+    indexed_sets: int  # số bối cảnh
+    indexed_images: int  # số ảnh (vector)

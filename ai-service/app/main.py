@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     # Xây FAISS index từ dữ liệu đã có sẵn trong Postgres (nếu có)
     entries = db.fetch_active_embeddings()
     count = faiss_index.rebuild_index(entries)
-    print(f"[Startup] Đã nạp {count} studio set vào FAISS index")
+    print(f"[Startup] Đã nạp {count} ảnh ({faiss_index.current_sets()} bối cảnh) vào FAISS index")
 
     yield
     # --- Chạy lúc shutdown (không cần dọn gì đặc biệt ở đây) ---
@@ -56,14 +56,17 @@ async def _read_and_validate_image(image: UploadFile) -> bytes:
 
 @app.get("/health", response_model=HealthResponse)
 def health():
-    return HealthResponse(status="ok", indexed_sets=faiss_index.current_size())
+    return HealthResponse(
+        status="ok",
+        indexed_sets=faiss_index.current_sets(),
+        indexed_images=faiss_index.current_size(),
+    )
 
 
 @app.post("/encode", response_model=EncodeResponse)
 async def encode(image: UploadFile = File(...)):
-    """Dùng nội bộ: Backend gọi endpoint này để mã hoá ảnh đại diện của 1
-    Studio Set thành embedding — dự kiến dùng trong luồng Admin duyệt studio
-    (chưa wiring vì Admin module chưa code)."""
+    """Dùng nội bộ: backend gọi để mã hoá ảnh (đại diện / album) của bối cảnh thành vector
+    512 chiều, rồi tự ghi vào cột vector trong Postgres (AiService.indexSets)."""
     content = await _read_and_validate_image(image)
     try:
         embedding = clip_model.encode_image_bytes(content)
@@ -83,6 +86,7 @@ async def search(image: UploadFile = File(...), top_k: int = Form(10)):
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Lỗi xử lý ảnh: {e}")
 
+    top_k = max(1, min(top_k, 50))
     results = faiss_index.search(embedding, top_k)
     return SearchResponse(results=results)
 

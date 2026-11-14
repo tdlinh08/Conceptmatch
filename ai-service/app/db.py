@@ -10,15 +10,26 @@ tách trách nhiệm rõ ràng: NestJS quản lý mọi thứ khác, AI Service 
 """
 
 import os
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import psycopg2
+
+# Tham số chỉ Prisma hiểu (vd ?schema=public) — psycopg2/libpq sẽ báo lỗi
+# "invalid URI query parameter" nếu để nguyên, nên bỏ đi trước khi kết nối.
+_PRISMA_ONLY_PARAMS = {"schema", "connection_limit", "pool_timeout", "pgbouncer", "socket_timeout"}
+
+
+def _libpq_url(url: str) -> str:
+    parts = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(parts.query) if k not in _PRISMA_ONLY_PARAMS]
+    return urlunsplit(parts._replace(query=urlencode(query)))
 
 
 def get_connection():
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError("Thiếu biến môi trường DATABASE_URL")
-    return psycopg2.connect(database_url)
+    return psycopg2.connect(_libpq_url(database_url))
 
 
 def fetch_active_embeddings() -> list[dict]:
@@ -29,14 +40,22 @@ def fetch_active_embeddings() -> list[dict]:
     conn = get_connection()
     try:
         with conn.cursor() as cur:
+            # Mỗi bối cảnh có NHIỀU vector: ảnh đại diện + từng ảnh album (nhiều góc chụp).
+            # Khi tìm, các vector cùng bối cảnh được gộp lại, lấy điểm cao nhất (xem faiss_index).
             cur.execute(
                 """
-                SELECT ss.id, ss.studio_id, ss.name, s.name, ss.clip_embedding, ss.avatar_url
+                SELECT ss.id, ss.studio_id, ss.name, s.name, ss.clip_embedding::text,
+                       ss.avatar_url, ss.avatar_url AS image_url
                 FROM studio_sets ss
                 JOIN studios s ON s.id = ss.studio_id
-                WHERE ss.is_active = true
-                  AND ss.clip_embedding IS NOT NULL
-                  AND s.status = 'active'
+                WHERE ss.is_active = true AND ss.clip_embedding IS NOT NULL AND s.status = 'active'
+                UNION ALL
+                SELECT ss.id, ss.studio_id, ss.name, s.name, si.clip_embedding::text,
+                       ss.avatar_url, si.url AS image_url
+                FROM set_images si
+                JOIN studio_sets ss ON ss.id = si.set_id
+                JOIN studios s ON s.id = ss.studio_id
+                WHERE ss.is_active = true AND si.clip_embedding IS NOT NULL AND s.status = 'active'
                 """
             )
             rows = cur.fetchall()
@@ -44,8 +63,8 @@ def fetch_active_embeddings() -> list[dict]:
         conn.close()
 
     results = []
-    for set_id, studio_id, set_name, studio_name, embedding_raw, avatar_url in rows:
-        # psycopg2 trả pgvector về dạng chuỗi "[0.1,0.2,...]" — tự parse thành list[float]
+    for set_id, studio_id, set_name, studio_name, embedding_raw, avatar_url, image_url in rows:
+        # pgvector trả về dạng chuỗi "[0.1,0.2,...]" — tự parse thành list[float]
         vector = [float(x) for x in embedding_raw.strip("[]").split(",")]
         results.append(
             {
@@ -54,6 +73,7 @@ def fetch_active_embeddings() -> list[dict]:
                 "set_name": set_name,
                 "studio_name": studio_name,
                 "avatar_url": avatar_url,
+                "image_url": image_url,
                 "vector": vector,
             }
         )
@@ -61,12 +81,9 @@ def fetch_active_embeddings() -> list[dict]:
 
 
 def save_embedding(set_id: str, vector: list[float]) -> None:
-    """Lưu embedding vừa encode được vào cột clip_embedding của studio_sets.
-
-    LƯU Ý: hàm này chưa được gọi ở đâu trong code hiện tại — để sẵn cho lúc
-    xây Admin module (luồng: Admin duyệt studio -> backend gọi /encode cho
-    từng Studio Set -> gọi hàm này lưu kết quả -> gọi /reindex). Chưa wiring
-    vì Admin module chưa code.
+    """(Không dùng) Lưu embedding vào studio_sets.clip_embedding.
+    Thực tế backend NestJS tự ghi cột vector sau khi gọi /encode (AiService.indexSets),
+    giữ hàm này để tiện thử nghiệm thủ công.
     """
     vector_str = "[" + ",".join(str(x) for x in vector) + "]"
     conn = get_connection()

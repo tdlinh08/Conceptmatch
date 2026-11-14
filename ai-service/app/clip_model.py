@@ -30,7 +30,7 @@ def load_model() -> None:
     with _load_lock:
         if _model is None:
             print(f"[CLIP] Đang tải model {MODEL_NAME} (lần đầu sẽ tải về từ "
-                  f"Hugging Face Hub, khoảng 350MB, các lần sau dùng cache)...")
+                  f"Hugging Face Hub, khoảng 600MB, các lần sau dùng cache)...")
             _model = CLIPModel.from_pretrained(MODEL_NAME).to(_device)
             _model.eval()  # tắt chế độ training (dropout, batchnorm...), chỉ dùng để suy luận
             _processor = CLIPProcessor.from_pretrained(MODEL_NAME)

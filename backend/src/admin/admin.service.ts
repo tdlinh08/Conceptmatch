@@ -323,6 +323,16 @@ export class AdminService {
     };
   }
 
+  async reindexAi() {
+    const sets = await this.prisma.studioSet.findMany({
+      where: { is_active: true, studio: { status: 'active' } },
+      select: { id: true },
+    });
+    const started = Date.now();
+    const warnings = await this.aiService.indexSets(sets.map((s) => s.id));
+    return { sets: sets.length, warnings, took_ms: Date.now() - started };
+  }
+
   /** Nhật ký thao tác của admin (duyệt / từ chối / gỡ studio, khoá / mở khoá tài khoản). */
   async findAuditLogs(query: QueryAuditLogsDto) {
     const { target_type, page, limit } = query;

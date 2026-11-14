@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
@@ -52,6 +53,15 @@ export class AdminController {
     @Body() dto: RejectStudioDto,
   ) {
     return this.adminService.takeDownStudio(id, adminId, dto);
+  }
+
+  /**
+   * Tạo lại vector AI cho MỌI bối cảnh đang hoạt động (ảnh đại diện + ảnh album chưa có vector)
+   * rồi dựng lại chỉ mục FAISS. Dùng khi: AI service tắt lúc duyệt studio, sau khi nhập dữ liệu mẫu.
+   */
+  @Post('ai/reindex')
+  reindexAi() {
+    return this.adminService.reindexAi();
   }
 
   @Get('audit-logs')

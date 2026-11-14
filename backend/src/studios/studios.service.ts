@@ -448,7 +448,7 @@ export class StudiosService {
 
   /** Thêm ảnh vào album set (tối đa MAX_SET_IMAGES ảnh / set). Trả về album mới. */
   async addSetImages(studioId: string, setId: string, ownerId: string, urls: string[]) {
-    await this.ensureOwnership(studioId, ownerId);
+    const studio = await this.ensureOwnership(studioId, ownerId);
     await this.ensureSet(studioId, setId);
     if (urls.length === 0) throw new BadRequestException('Chưa chọn ảnh nào');
 
@@ -469,17 +469,20 @@ export class StudiosService {
     await this.prisma.setImage.createMany({
       data: urls.map((url, i) => ({ set_id: setId, url, sort_order: start + i })),
     });
+    // Studio đang hoạt động: tạo vector cho ảnh mới để AI tìm được theo cả ảnh album
+    if (studio.status === 'active') await this.aiService.indexSets([setId]);
     return this.findSetImages(setId);
   }
 
   async deleteSetImage(studioId: string, setId: string, ownerId: string, imageId: string) {
-    await this.ensureOwnership(studioId, ownerId);
+    const studio = await this.ensureOwnership(studioId, ownerId);
     await this.ensureSet(studioId, setId);
     const image = await this.prisma.setImage.findFirst({ where: { id: imageId, set_id: setId } });
     if (!image) throw new NotFoundException('Ảnh không tồn tại trong bối cảnh này');
 
     await this.prisma.setImage.delete({ where: { id: imageId } });
     await deleteLocalMedia(image.url);
+    if (studio.status === 'active') await this.aiService.reindex(); // bỏ vector của ảnh đã xoá
     return this.findSetImages(setId);
   }
 

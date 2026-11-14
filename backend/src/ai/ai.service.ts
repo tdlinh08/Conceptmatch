@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
@@ -35,41 +35,65 @@ export class AiService {
 
     const sets = await this.prisma.studioSet.findMany({
       where: { id: { in: setIds }, is_active: true },
+      select: { id: true, name: true, avatar_url: true },
     });
 
     for (const set of sets) {
+      // 1) Ảnh đại diện: luôn mã hoá lại (có thể vừa đổi ảnh)
       try {
-        const imageBuffer = await this.loadImage(set.avatar_url);
-
-        const form = new FormData();
-        form.append('image', imageBuffer, { filename: 'avatar.jpg' });
-        const encodeResponse = await firstValueFrom(
-          this.http.post(`${this.aiServiceUrl}/encode`, form, {
-            headers: form.getHeaders(),
-            timeout: AI_SERVICE_TIMEOUT_MS,
-          }),
-        );
-
-        const embedding: number[] = encodeResponse.data.embedding;
-        const vectorLiteral = `[${embedding.join(',')}]`;
-        // $executeRaw bắt buộc: clip_embedding là Unsupported("vector(512)") trong Prisma.
+        const vector = await this.encodeUrl(set.avatar_url);
         await this.prisma.$executeRaw`
-          UPDATE studio_sets
-          SET clip_embedding = ${vectorLiteral}::vector
-          WHERE id::text = ${set.id}
+          UPDATE studio_sets SET clip_embedding = ${vector}::vector WHERE id::text = ${set.id}
         `;
       } catch (err) {
-        warnings.push(
-          `Không thể encode ảnh cho set "${set.name}" (${set.id}): ${
-            err instanceof Error ? err.message : 'lỗi không xác định'
-          }`,
-        );
+        warnings.push(`Không thể encode ảnh đại diện của set "${set.name}": ${this.errText(err)}`);
+      }
+
+      // 2) Ảnh album chưa có vector: mã hoá thêm -> AI so khớp được với nhiều góc chụp của bối cảnh
+      const album = await this.prisma.$queryRaw<{ id: string; url: string }[]>`
+        SELECT id, url FROM set_images WHERE set_id = ${set.id} AND clip_embedding IS NULL
+      `;
+      for (const img of album) {
+        try {
+          const vector = await this.encodeUrl(img.url);
+          await this.prisma.$executeRaw`
+            UPDATE set_images SET clip_embedding = ${vector}::vector WHERE id = ${img.id}
+          `;
+        } catch (err) {
+          warnings.push(`Không thể encode 1 ảnh album của set "${set.name}": ${this.errText(err)}`);
+        }
       }
     }
 
     const reindexWarning = await this.reindex();
     if (reindexWarning) warnings.push(reindexWarning);
     return warnings;
+  }
+
+  /** Gửi 1 ảnh sang AI Service /encode, trả về vector dạng chuỗi "[...]" để ghi vào cột vector. */
+  private async encodeUrl(url: string): Promise<string> {
+    const imageBuffer = await this.loadImage(url);
+    const form = new FormData();
+    form.append('image', imageBuffer, { filename: 'image.jpg', contentType: this.mimeOf(url) });
+    const res = await firstValueFrom(
+      this.http.post(`${this.aiServiceUrl}/encode`, form, {
+        headers: form.getHeaders(),
+        timeout: AI_SERVICE_TIMEOUT_MS,
+      }),
+    );
+    const embedding: number[] = res.data.embedding;
+    return `[${embedding.join(',')}]`;
+  }
+
+  private mimeOf(url: string) {
+    const u = url.toLowerCase();
+    if (u.endsWith('.png')) return 'image/png';
+    if (u.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  private errText(err: unknown) {
+    return err instanceof Error ? err.message : 'lỗi không xác định';
   }
 
   /** Index toàn bộ set đang hoạt động của một studio (dùng khi Admin duyệt). */
@@ -104,6 +128,11 @@ export class AiService {
     return Buffer.from(response.data);
   }
 
+  /**
+   * Tìm bối cảnh giống ảnh người dùng gửi. AI Service trả về (set, độ tương đồng, ảnh khớp nhất);
+   * backend bổ sung thông tin để app hiển thị ngay (quận, điểm, giá từ, concept) và LỌC BỎ
+   * set / studio không còn hoạt động (phòng khi chỉ mục FAISS chưa kịp cập nhật).
+   */
   async visualSearch(file: Express.Multer.File, topK: number) {
     const form = new FormData();
     form.append('image', file.buffer, {
@@ -112,34 +141,84 @@ export class AiService {
     });
     form.append('top_k', String(topK));
 
-    const aiServiceUrl = this.config.get<string>('AI_SERVICE_URL') ?? 'http://localhost:8000';
-
+    const started = Date.now();
+    let raw: AiSearchItem[];
     try {
       const response = await firstValueFrom(
-        this.http.post(`${aiServiceUrl}/search`, form, {
+        this.http.post(`${this.aiServiceUrl}/search`, form, {
           headers: form.getHeaders(),
           timeout: AI_SERVICE_TIMEOUT_MS,
         }),
       );
-      return response.data;
+      raw = (response.data?.results ?? []) as AiSearchItem[];
     } catch (err) {
       const error = err as AxiosError;
-
-      // Đúng theo API Contract: 503 khi AI Service timeout hoặc không phản hồi.
-      // KHÔNG tự động fallback sang text search ở tầng backend — để phía
-      // Frontend/Mobile tự bắt lỗi 503 này và chuyển sang gọi GET /studios
-      // với từ khoá do người dùng nhập, vì visual search vốn không có sẵn
-      // "từ khoá" nào để tự fallback thay người dùng.
-      if (
-        error.code === 'ECONNABORTED' ||
-        error.code === 'ECONNREFUSED' ||
-        !error.response
-      ) {
+      // Theo API Contract: 503 khi AI Service timeout / không phản hồi. App tự gợi ý
+      // chuyển sang tìm bằng từ khoá (ảnh không có "từ khoá" nào để backend tự fallback).
+      if (error.code === 'ECONNABORTED' || error.code === 'ECONNREFUSED' || !error.response) {
         throw new ServiceUnavailableException(
           'AI Service không phản hồi, vui lòng thử lại hoặc tìm kiếm bằng từ khoá',
         );
       }
-      throw error;
+      if (error.response.status === 400 || error.response.status === 413) {
+        const detail = (error.response.data as { detail?: string })?.detail;
+        throw new BadRequestException(detail ?? 'Ảnh không hợp lệ');
+      }
+      throw new ServiceUnavailableException('AI Service gặp lỗi khi xử lý ảnh, vui lòng thử lại');
     }
+
+    const sets = await this.prisma.studioSet.findMany({
+      where: {
+        id: { in: raw.map((r) => r.set_id) },
+        is_active: true,
+        studio: { status: 'active' },
+      },
+      select: {
+        id: true,
+        name: true,
+        style_tag: true,
+        capacity: true,
+        avatar_url: true,
+        studio: { select: { id: true, name: true, district: true, avg_rating: true, review_count: true } },
+        packages: {
+          where: { is_active: true },
+          orderBy: { price: 'asc' },
+          take: 1,
+          select: { price: true, duration_minutes: true },
+        },
+      },
+    });
+    const byId = new Map(sets.map((s) => [s.id, s]));
+
+    const results = raw
+      .filter((r) => byId.has(r.set_id))
+      .map((r) => {
+        const s = byId.get(r.set_id)!;
+        return {
+          set_id: s.id,
+          set_name: s.name,
+          style_tag: s.style_tag,
+          capacity: s.capacity,
+          avatar_url: s.avatar_url,
+          matched_image_url: r.matched_image_url ?? s.avatar_url, // ảnh của bối cảnh giống nhất
+          studio_id: s.studio.id,
+          studio_name: s.studio.name,
+          district: s.studio.district,
+          avg_rating: Number(s.studio.avg_rating),
+          review_count: s.studio.review_count,
+          min_price: s.packages[0] ? Number(s.packages[0].price) : null,
+          min_price_minutes: s.packages[0]?.duration_minutes ?? null,
+          similarity: Math.round(r.similarity_score * 1000) / 1000, // cosine (-1..1), thường 0,5–0,95
+        };
+      });
+
+    return { results, took_ms: Date.now() - started };
   }
+}
+
+/** 1 kết quả thô từ AI Service. */
+interface AiSearchItem {
+  set_id: string;
+  similarity_score: number;
+  matched_image_url?: string;
 }

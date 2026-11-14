@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import '../ai/visual_search_screen.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/bookings_provider.dart';
@@ -44,11 +45,7 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _openAiSearch() {
-    // Màn AI Visual Search sẽ làm ở bước sau — khi đó thay dòng dưới bằng:
-    // Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AiSearchScreen()));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Màn tìm bằng hình ảnh sẽ có ở bước tiếp theo')),
-    );
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VisualSearchScreen()));
   }
 
   @override

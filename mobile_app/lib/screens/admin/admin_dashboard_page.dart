@@ -42,6 +42,39 @@ class AdminDashboardPageState extends State<AdminDashboardPage> {
     }
   }
 
+  /// Mã hoá lại ảnh mọi bối cảnh đang hoạt động bằng CLIP (cần AI service đang chạy).
+  Future<void> _reindexAi() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final provider = context.read<AdminProvider>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Tạo lại dữ liệu AI?'),
+        content: const Text(
+          'Mã hoá lại ảnh của mọi bối cảnh đang hoạt động để tìm kiếm bằng ảnh. '
+          'Cần AI service đang chạy; có thể mất vài phút nếu nhiều ảnh.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Huỷ')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Bắt đầu')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    messenger.showSnackBar(const SnackBar(content: Text('Đang mã hoá ảnh, vui lòng chờ…')));
+    try {
+      final r = await provider.reindexAi();
+      messenger.showSnackBar(SnackBar(
+        content: Text(r.warnings.isEmpty
+            ? 'Xong: ${r.sets} bối cảnh đã có dữ liệu AI'
+            : 'Xong ${r.sets} bối cảnh, ${r.warnings.length} cảnh báo: ${r.warnings.first}'),
+        duration: const Duration(seconds: 6),
+      ));
+    } on OwnerActionException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   static const _statusLabels = {
     'pending': 'Chờ xác nhận',
     'confirmed': 'Đã xác nhận',
@@ -76,6 +109,11 @@ class AdminDashboardPageState extends State<AdminDashboardPage> {
       subtitle: 'Số liệu toàn hệ thống · cập nhật ${fmtDateTime(DateTime.now())}',
       onRefresh: load,
       actions: [
+        IconButton(
+          tooltip: 'Tạo lại dữ liệu tìm kiếm bằng ảnh (AI)',
+          onPressed: _reindexAi,
+          icon: const Icon(Icons.auto_awesome_outlined),
+        ),
         IconButton(tooltip: 'Tải lại', onPressed: load, icon: const Icon(Icons.refresh_rounded)),
       ],
       children: [

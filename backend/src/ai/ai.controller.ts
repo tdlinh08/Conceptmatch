@@ -36,7 +36,9 @@ export class AiController {
       throw new BadRequestException('Chỉ nhận JPG/PNG/WEBP');
     }
 
-    const topK = topKRaw ? parseInt(topKRaw, 10) : DEFAULT_TOP_K;
+    // top_k: 1..30, sai định dạng thì dùng mặc định
+    const parsed = topKRaw ? parseInt(topKRaw, 10) : NaN;
+    const topK = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 30) : DEFAULT_TOP_K;
     return this.aiService.visualSearch(file, topK);
   }
 }

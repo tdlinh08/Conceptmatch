@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart' show Options;
 import 'package:flutter/foundation.dart';
 import '../core/network/api_client.dart';
 import '../core/network/api_error.dart';
@@ -214,6 +215,19 @@ class AdminProvider extends ChangeNotifier {
         () => _api.dio.patch('/admin/reviews/$id/unhide'),
         'Không hiện lại được đánh giá',
       );
+
+  /// Tạo lại vector AI cho mọi bối cảnh đang hoạt động. Trả về (số bối cảnh, cảnh báo).
+  Future<({int sets, List<String> warnings})> reindexAi() => _call(() async {
+        final res = await _api.dio.post(
+          '/admin/ai/reindex',
+          options: Options(receiveTimeout: const Duration(minutes: 10)),
+        );
+        final d = res.data as Map<String, dynamic>;
+        return (
+          sets: (d['sets'] as num).toInt(),
+          warnings: (d['warnings'] as List).map((e) => e.toString()).toList(),
+        );
+      }, 'Không tạo lại được dữ liệu AI');
 
   void _setReports(int n) {
     if (n == pendingReports) return;

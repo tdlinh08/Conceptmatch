@@ -116,6 +116,8 @@ model SetImage {
   set_id     String
   url        String
   sort_order Int      @default(0)
+  // Vector CLIP của ảnh album — AI tìm theo NHIỀU góc chụp của 1 bối cảnh (không chỉ ảnh đại diện)
+  clip_embedding Unsupported("vector(512)")?
   created_at DateTime @default(now())
 
   set StudioSet @relation(fields: [set_id], references: [id], onDelete: Cascade)

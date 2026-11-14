@@ -25,3 +25,5 @@ __pycache__/
 Thumbs.db
 mobile_app/android/build/
 backend/uploads/
+# Môi trường ảo Python của ai-service
+.venv/

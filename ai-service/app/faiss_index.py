@@ -45,31 +45,45 @@ def rebuild_index(entries: list[dict]) -> int:
 
 
 def search(query_vector: list[float], top_k: int = 10) -> list[dict]:
+    """Tìm top_k BỐI CẢNH giống nhất. Index chứa nhiều vector cho 1 bối cảnh (ảnh đại diện +
+    album), nên lấy dư ứng viên rồi GỘP theo set_id, giữ ảnh có điểm cao nhất
+    (max-pooling): bối cảnh khớp với BẤT KỲ góc chụp nào của nó đều được xếp hạng cao.
+    """
     with _lock:
         if _index is None or _index.ntotal == 0:
             return []
 
         query = np.array([query_vector], dtype="float32")
-        k = min(top_k, _index.ntotal)
+        k = min(max(top_k * 8, 50), _index.ntotal)  # lấy dư để còn đủ top_k bối cảnh sau khi gộp
         scores, indices = _index.search(query, k)
 
-        results = []
+        best: dict[str, dict] = {}
         for score, idx in zip(scores[0], indices[0]):
             if idx == -1:
                 continue
             meta = _metadata[idx]
-            results.append(
-                {
-                    "studio_id": meta["studio_id"],
-                    "studio_name": meta["studio_name"],
-                    "set_id": meta["set_id"],
-                    "set_name": meta["set_name"],
-                    "avatar_url": meta["avatar_url"],
-                    "similarity_score": float(score),
-                }
-            )
-        return results
+            set_id = meta["set_id"]
+            if set_id in best:
+                continue  # FAISS trả theo điểm giảm dần -> lần đầu gặp là điểm cao nhất của set
+            best[set_id] = {
+                "studio_id": meta["studio_id"],
+                "studio_name": meta["studio_name"],
+                "set_id": set_id,
+                "set_name": meta["set_name"],
+                "avatar_url": meta["avatar_url"],
+                "matched_image_url": meta.get("image_url") or meta["avatar_url"],
+                "similarity_score": float(score),
+            }
+            if len(best) >= top_k:
+                break
+        return list(best.values())
 
 
 def current_size() -> int:
+    """Số vector (ảnh) đang có trong index."""
     return _index.ntotal if _index is not None else 0
+
+
+def current_sets() -> int:
+    """Số bối cảnh khác nhau đang có trong index."""
+    return len({m["set_id"] for m in _metadata})

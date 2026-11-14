@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../ai/visual_search_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -70,10 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openAiSearch() {
-    // Giống nút AI trên thanh điều hướng — sẽ thay khi làm màn AI Visual Search.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Màn tìm bằng hình ảnh sẽ có ở bước tiếp theo')),
-    );
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VisualSearchScreen()));
   }
 
   Future<void> _openNotifications() async {
