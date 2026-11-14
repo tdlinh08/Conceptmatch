@@ -15,7 +15,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
-import { StudiosService } from './studios.service';
+import { MAX_SET_IMAGES, StudiosService } from './studios.service';
 import { CreateStudioDto } from './dto/create-studio.dto';
 import { UpdateStudioDto } from './dto/update-studio.dto';
 import { QueryStudiosDto } from './dto/query-studios.dto';
@@ -185,10 +185,10 @@ export class StudiosController {
 
   // ---- Album ảnh của set (multipart/form-data, field "images") ----
 
-  /** Thêm ảnh vào album 1 bối cảnh; tối đa 10 ảnh / set (tính cả ảnh đã có). */
+  /** Thêm ảnh vào album 1 bối cảnh; tối đa MAX_SET_IMAGES (15) ảnh / set (tính cả ảnh đã có). */
   @Roles('studio_owner')
   @Post(':id/sets/:setId/images')
-  @UseInterceptors(FilesInterceptor('images', 10, imageUploadOptions('sets')))
+  @UseInterceptors(FilesInterceptor('images', MAX_SET_IMAGES, imageUploadOptions('sets')))
   async addSetImages(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('setId', ParseUUIDPipe) setId: string,

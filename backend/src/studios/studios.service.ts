@@ -51,7 +51,7 @@ const SET_SELECT = {
 } satisfies Prisma.StudioSetSelect;
 
 /** Số ảnh tối đa trong album của 1 set. */
-export const MAX_SET_IMAGES = 10;
+export const MAX_SET_IMAGES = 15;
 
 // Gói thuê trả về cho app (giá Decimal -> number ở toPackage)
 const PACKAGE_SELECT = {

@@ -27,3 +27,7 @@ mobile_app/android/build/
 backend/uploads/
 # Môi trường ảo Python của ai-service
 .venv/
+
+# Ảnh thật của studio (bản quyền + mặt người) — KHÔNG đưa lên GitHub
+seed_data/du_lieu_anh/
+seed_data/test_manifest.json

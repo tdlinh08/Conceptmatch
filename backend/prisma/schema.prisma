@@ -109,7 +109,7 @@ model StudioSet {
   @@map("studio_sets")
 }
 
-// Album ảnh của 1 bối cảnh (set) — khách xem trước khi đặt. Tối đa 10 ảnh/set.
+// Album ảnh của 1 bối cảnh (set) — khách xem trước khi đặt. Tối đa 15 ảnh/set.
 // avatar_url của set vẫn là ảnh đại diện (thẻ set + ảnh để AI tìm kiếm).
 model SetImage {
   id         String   @id @default(uuid())

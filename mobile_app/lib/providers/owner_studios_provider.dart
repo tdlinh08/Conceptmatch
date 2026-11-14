@@ -186,7 +186,7 @@ class OwnerStudiosProvider extends ChangeNotifier {
         return _warnings(res.data);
       }, 'Không lưu được bối cảnh');
 
-  /// Thêm ảnh vào album bối cảnh (tối đa 10 ảnh / bối cảnh).
+  /// Thêm ảnh vào album bối cảnh (tối đa 15 ảnh / bối cảnh).
   Future<void> addSetImages(String studioId, String setId, List<String> paths) => _call(() async {
         final form = FormData();
         for (final p in paths) {

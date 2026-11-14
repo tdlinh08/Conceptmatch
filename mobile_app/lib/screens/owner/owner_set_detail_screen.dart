@@ -22,7 +22,7 @@ class OwnerSetDetailScreen extends StatefulWidget {
 }
 
 class _OwnerSetDetailScreenState extends State<OwnerSetDetailScreen> {
-  static const _maxAlbum = 10;
+  static const _maxAlbum = 15;
 
   OwnerStudioDetail? _studio;
   String? _error;
