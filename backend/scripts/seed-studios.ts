@@ -8,6 +8,8 @@
  *   npm run seed:studios -- --chi-ai          -> không nhập lại, chỉ cho AI mã hoá ảnh còn thiếu
  *   (thêm --file <xlsx> / --anh <thư mục> nếu để file ở chỗ khác)
  *
+ * Ảnh đưa vào app được tự thu nhỏ (cạnh dài 1920 px, JPEG) — ảnh gốc trong seed_data giữ nguyên.
+ *
  * Chạy trong thư mục backend/. Đọc DATABASE_URL, AI_SERVICE_URL, SEED_OWNER_PASSWORD trong .env.
  *
  * Mỗi bối cảnh (ma_set) có 1 thư mục ảnh seed_data/du_lieu_anh/<ma_set>/ (~20 ảnh):
@@ -25,6 +27,7 @@ import { extname, join, relative, resolve } from 'path';
 import axios from 'axios';
 import * as bcrypt from 'bcrypt';
 import ExcelJS from 'exceljs';
+import sharp from 'sharp';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { AddonUnit, Prisma, StaffRole } from '@prisma/client';
@@ -54,9 +57,9 @@ const DISTRICTS = [
   'Ba Đình', 'Hoàn Kiếm', 'Đống Đa', 'Hai Bà Trưng', 'Cầu Giấy', 'Tây Hồ', 'Thanh Xuân',
   'Hoàng Mai', 'Long Biên', 'Nam Từ Liêm', 'Bắc Từ Liêm', 'Hà Đông',
 ];
-const IMAGE_EXT = ['.jpg', '.jpeg', '.png', '.webp'];
+const IMAGE_EXT = ['.jpg', '.jpeg', '.jfif', '.png', '.webp']; // .jfif = JPEG (Chrome hay lưu đuôi này)
 const TEST_PER_SET_AUTO = 5; // tự chia: cứ 5 ảnh lấy 1 ảnh làm ảnh kiểm thử (20 ảnh -> 4 ảnh)
-const BIG_IMAGE_BYTES = 3 * 1024 * 1024;
+const MAX_SIDE_PX = 1920; // ảnh đưa vào app được thu nhỏ về cạnh dài này
 const BCRYPT_COST = 12; // giống AuthService
 const ROLE: Record<string, StaffRole> = { 'thợ ảnh': 'photographer', 'thợ trang điểm': 'makeup' };
 const UNIT: Record<string, AddonUnit> = {
@@ -77,7 +80,12 @@ function cellValue(v: ExcelJS.CellValue): string | number | null {
   if (typeof v === 'string') return v.trim() === '' ? null : v.trim();
   if (typeof v === 'object') {
     if ('richText' in v) return cellValue(v.richText.map((t) => t.text).join(''));
-    if ('result' in v) return cellValue(v.result as ExcelJS.CellValue);
+    // Ô công thức: lấy giá trị Excel đã tính khi lưu file (chưa lưu bằng Excel thì chưa có -> coi như trống)
+    if ('formula' in v || 'sharedFormula' in v || 'result' in v) {
+      const result = (v as { result?: unknown }).result;
+      if (result && typeof result === 'object' && 'error' in result) return null;
+      return cellValue((result ?? null) as ExcelJS.CellValue);
+    }
     if ('text' in v) return cellValue(v.text as string);
   }
   return String(v);
@@ -166,9 +174,41 @@ async function listImages(dir: string): Promise<string[]> {
     .sort((a, b) => a.localeCompare(b, 'vi', { numeric: true }));
 }
 
+/**
+ * Thư mục ảnh của 1 bối cảnh — nhận cả 2 cách xếp:
+ *   du_lieu_anh/S05/S05-1/   (bối cảnh nằm trong thư mục studio)
+ *   du_lieu_anh/S05-1/       (bối cảnh nằm thẳng trong du_lieu_anh)
+ */
+function setDir(maSet: string): string {
+  const nested = join(IMAGE_DIR, maSet.split('-')[0], maSet);
+  return existsSync(nested) ? nested : join(IMAGE_DIR, maSet);
+}
+
+/** Giải thích vì sao thư mục không có ảnh dùng được: chưa tạo / trống / ảnh nằm trong thư mục con / sai định dạng. */
+async function describeFolder(dir: string): Promise<string> {
+  if (!existsSync(dir)) {
+    const want = dir.split(/[\\/]/).pop()!.toLowerCase();
+    const studioDir = join(IMAGE_DIR, want.split('-')[0].toUpperCase());
+    const parent = [
+      ...(await fs.readdir(IMAGE_DIR).catch(() => [] as string[])),
+      ...(await fs.readdir(studioDir).catch(() => [] as string[])),
+    ];
+    const near = parent.filter((n) => n.trim().toLowerCase() === want || n.toLowerCase().includes(want));
+    return near.length
+      ? `chưa có — thấy thư mục "${near.join('", "')}", đổi tên cho đúng (không dấu cách)`
+      : `chưa tạo — tạo thư mục ${want.toUpperCase()} (trong du_lieu_anh hoặc du_lieu_anh\\${want.split('-')[0].toUpperCase()}) và bỏ ảnh vào`;
+  }
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const subdirs = entries.filter((e) => e.isDirectory() && e.name.toLowerCase() !== 'test').map((e) => e.name);
+  const exts = [...new Set(entries.filter((e) => e.isFile()).map((e) => extname(e.name).toLowerCase() || '(không đuôi)'))];
+  if (exts.length) return `có ${entries.filter((e) => e.isFile()).length} file nhưng định dạng ${exts.join(', ')} chưa hỗ trợ — đổi sang JPG/PNG/WEBP (ảnh .heic từ iPhone: mở bằng Photos rồi lưu lại dạng JPG)`;
+  if (subdirs.length) return `ảnh đang nằm trong thư mục con "${subdirs.join('", "')}" — chuyển ảnh ra thẳng thư mục ${dir.split(/[\\/]/).pop()}`;
+  return 'đang trống — chưa có ảnh nào';
+}
+
 /** Chia ảnh 1 bối cảnh thành: ảnh đại diện + album (đưa vào hệ thống) và ảnh kiểm thử. */
 async function planSetImages(maSet: string): Promise<SetImages | null> {
-  const dir = join(IMAGE_DIR, maSet);
+  const dir = setDir(maSet);
   const all = await listImages(dir);
   const testDir = (await fs.readdir(dir).catch(() => [] as string[])).find((n) => n.toLowerCase() === 'test');
   let indexed: string[];
@@ -181,7 +221,7 @@ async function planSetImages(maSet: string): Promise<SetImages | null> {
     test = all.filter((_, i) => (i + 1) % TEST_PER_SET_AUTO === 0);
   }
   if (indexed.length === 0) {
-    errors.push(`[Ảnh] thư mục ${relative(SEED_DIR, dir)} không có ảnh nào (JPG/PNG/WEBP)`);
+    errors.push(`[Ảnh] thư mục ${relative(SEED_DIR, dir)} ${await describeFolder(dir)}`);
     return null;
   }
   const avatarIdx = Math.max(0, indexed.findIndex((p) => /^dai_dien/i.test(p.split(/[\\/]/).pop()!)));
@@ -193,12 +233,6 @@ async function planSetImages(maSet: string): Promise<SetImages | null> {
     album = album.slice(0, MAX_SET_IMAGES);
   }
   if (test.length === 0) warnings.push(`[Ảnh] ${maSet}: không có ảnh kiểm thử -> bối cảnh này không được đánh giá AI`);
-  for (const p of [avatar, ...album]) {
-    const size = (await fs.stat(p)).size;
-    if (size > BIG_IMAGE_BYTES) {
-      warnings.push(`[Ảnh] ${relative(SEED_DIR, p)} nặng ${(size / 1048576).toFixed(1)} MB — nên nén < 3 MB cho app tải nhanh`);
-    }
-  }
   return { avatar, album, test };
 }
 
@@ -209,8 +243,15 @@ async function copyImages(code: string, files: string[]): Promise<string[]> {
   await fs.mkdir(dest, { recursive: true });
   const urls: string[] = [];
   for (const [i, src] of files.entries()) {
-    const name = `${String(i + 1).padStart(2, '0')}${extname(src).toLowerCase().replace('.jpeg', '.jpg')}`;
-    await fs.copyFile(src, join(dest, name));
+    // Ảnh gốc máy ảnh có thể 20–30 MB: thu về cạnh dài tối đa 1920 px, JPEG ~85% (thường 0,3–1 MB).
+    // rotate() xoay ảnh theo EXIF (ảnh điện thoại chụp dọc không bị nằm ngang).
+    const name = `${String(i + 1).padStart(2, '0')}.jpg`;
+    await sharp(src, { failOn: 'none' })
+      .rotate()
+      .resize({ width: MAX_SIDE_PX, height: MAX_SIDE_PX, fit: 'inside', withoutEnlargement: true })
+      .flatten({ background: '#ffffff' })
+      .jpeg({ quality: 85, mozjpeg: true })
+      .toFile(join(dest, name));
     urls.push(`/uploads/seed/${code}/${name}`);
   }
   return urls;
