@@ -29,7 +29,7 @@ class LocationService {
     }
     if (permission == LocationPermission.deniedForever) {
       throw LocationException(
-        'Quyền vị trí đã bị chặn. Vào Cài đặt > Ứng dụng > ConceptMatch > Quyền để bật lại.',
+        'Quyền vị trí đã bị chặn. Vào Cài đặt > Ứng dụng > Hanoi Photobooth > Quyền để bật lại.',
       );
     }
 

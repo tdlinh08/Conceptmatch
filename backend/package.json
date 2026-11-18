@@ -18,7 +18,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "seed:studios": "ts-node --transpile-only scripts/seed-studios.ts"
+    "seed:studios": "ts-node --transpile-only scripts/seed-studios.ts",
+    "test:api": "node test/api/run.mjs"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",
@@ -40,6 +41,7 @@
     "form-data": "^4.0.6",
     "google-auth-library": "^10.9.0",
     "multer": "^2.2.0",
+    "nodemailer": "^6.10.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
@@ -57,6 +59,7 @@
     "@types/jest": "^30.0.0",
     "@types/multer": "^2.2.0",
     "@types/node": "^24.0.0",
+    "@types/nodemailer": "^6.4.17",
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^7.0.0",
     "eslint": "^9.18.0",
@@ -68,6 +71,7 @@
     "prettier": "^3.4.2",
     "prisma": "^6.19.3",
     "sharp": "^0.34.5",
+    "socket.io-client": "^4.8.4",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.5",

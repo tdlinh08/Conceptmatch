@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/network/realtime_client.dart';
 import '../../models/notification_model.dart';
 import '../../providers/notifications_provider.dart';
 import '../../providers/owner_bookings_provider.dart';
@@ -45,6 +48,27 @@ class _OwnerShellState extends State<OwnerShell> {
       context.read<OwnerStudiosProvider>().fetchMine();
       context.read<NotificationsProvider>().fetchUnreadCount();
     });
+    // Có đơn mới / khách huỷ đơn -> cập nhật Lịch đặt và số đơn chờ ngay.
+    _bookingSub = RealtimeClient().bookingChanged.listen((_) => _refreshBookings());
+    _notificationSub = RealtimeClient().notifications.listen((n) {
+      if ((n['type'] as String? ?? '').startsWith('booking_')) _refreshBookings();
+    });
+  }
+
+  StreamSubscription<Map<String, dynamic>>? _bookingSub;
+  StreamSubscription<Map<String, dynamic>>? _notificationSub;
+
+  void _refreshBookings() {
+    if (!mounted) return;
+    context.read<OwnerStudiosProvider>().fetchMine();
+    context.read<OwnerBookingsProvider>().refreshAll();
+  }
+
+  @override
+  void dispose() {
+    _bookingSub?.cancel();
+    _notificationSub?.cancel();
+    super.dispose();
   }
 
   /// Thông báo đơn đặt / đánh giá -> mở chi tiết đơn; studio được duyệt / bị từ chối -> mở studio đó.

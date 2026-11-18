@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     # --- Chạy lúc shutdown (không cần dọn gì đặc biệt ở đây) ---
 
 
-app = FastAPI(title="ConceptMatch AI Service", lifespan=lifespan)
+app = FastAPI(title="Hanoi Photobooth AI Service", lifespan=lifespan)
 
 # Cho phép NestJS backend (khác port/origin khi dev) gọi sang thoải mái.
 # Trong môi trường thật, nên giới hạn allow_origins về đúng URL backend.

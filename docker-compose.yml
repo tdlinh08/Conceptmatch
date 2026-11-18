@@ -1,17 +1,61 @@
-version: '3.8'
-
+# Chạy toàn bộ hệ thống Hanoi Photobooth bằng Docker:
+#   1. Tạo backend/.env từ backend/.env.example (điền JWT_*, GOOGLE_CLIENT_ID, SMTP_*)
+#   2. docker compose up -d --build
+#   3. API: http://localhost:3000/api/v1   ·   AI: http://localhost:8000/docs
+# Chỉ cần Postgres (chạy backend/AI trên máy):  docker compose up -d db
 services:
-  postgres:
-    image: postgres:15
+  db:
+    # Postgres 15 có sẵn extension pgvector (bản postgres:15 thường KHÔNG có -> migration lỗi)
+    image: pgvector/pgvector:pg15
     container_name: conceptmatch_db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres123
       POSTGRES_DB: conceptmatch
+      TZ: Asia/Ho_Chi_Minh
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d conceptmatch"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ai-service:
+    build: ./ai-service
+    container_name: conceptmatch_ai
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres123@db:5432/conceptmatch
+    ports:
+      - "8000:8000"
+    volumes:
+      - hf_cache:/root/.cache/huggingface # mô hình CLIP tải 1 lần, lần sau dùng lại
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    container_name: conceptmatch_backend
+    env_file: ./backend/.env
+    environment:
+      # Ghi đè địa chỉ cho đúng mạng nội bộ của Docker
+      DATABASE_URL: postgresql://postgres:postgres123@db:5432/conceptmatch
+      AI_SERVICE_URL: http://ai-service:8000
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "3000:3000"
+    volumes:
+      - uploads:/app/uploads # ảnh tải lên (avatar, ảnh studio)
+    depends_on:
+      db:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
 
 volumes:
   postgres_data:
+  hf_cache:
+  uploads:

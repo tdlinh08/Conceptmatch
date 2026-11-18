@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import '../core/network/api_client.dart';
+import '../core/network/realtime_client.dart';
 import '../models/notification_model.dart';
 
 /// Thông báo trong app: số chưa đọc (chấm đỏ trên chuông ở Home) + danh sách.
@@ -10,6 +13,29 @@ class NotificationsProvider extends ChangeNotifier {
   int unread = 0;
   bool isLoading = false;
   String? errorMessage;
+
+  StreamSubscription<Map<String, dynamic>>? _sub;
+
+  NotificationsProvider() {
+    // Thông báo mới đẩy qua socket -> hiện ngay, không phải chờ mở lại màn.
+    _sub = RealtimeClient().notifications.listen(_onRealtime);
+  }
+
+  void _onRealtime(Map<String, dynamic> json) {
+    try {
+      final n = AppNotification.fromJson(json);
+      if (items.any((x) => x.id == n.id)) return;
+      items = [n, ...items];
+      if (!n.isRead) unread++;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
 
   /// Xoá dữ liệu của tài khoản cũ khi đăng xuất.
   void reset() {

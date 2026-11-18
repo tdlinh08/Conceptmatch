@@ -59,7 +59,7 @@ export class GeocodeService {
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}/search?${params}`, {
-        headers: { 'User-Agent': 'ConceptMatch-DoAn/1.0 (do an tot nghiep, DH Kien truc Ha Noi)' },
+        headers: { 'User-Agent': 'HanoiPhotobooth-DoAn/1.0 (do an tot nghiep, DH Kien truc Ha Noi)' },
         signal: AbortSignal.timeout(8000),
       });
     } catch (err) {

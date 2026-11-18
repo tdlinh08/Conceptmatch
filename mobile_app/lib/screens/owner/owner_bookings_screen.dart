@@ -8,6 +8,8 @@ import '../../providers/owner_bookings_provider.dart';
 import '../../providers/owner_studios_provider.dart';
 import '../bookings/widgets/booking_status_badge.dart';
 import 'owner_booking_detail_screen.dart';
+import '../../providers/chat_provider.dart';
+import '../chat/conversations_screen.dart';
 
 /// Tab "Lịch đặt" của chủ studio: 3 tab Chờ xác nhận / Sắp tới / Đã xong,
 /// lọc theo studio, bấm đơn để xem chi tiết và xử lý.
@@ -61,6 +63,7 @@ class _OwnerBookingsScreenState extends State<OwnerBookingsScreen> {
                         studios: [for (final s in studios) (s.id, s.name)],
                         onChanged: provider.setStudio,
                       ),
+                    const _ChatButton(),
                   ],
                 ),
               ),
@@ -84,6 +87,34 @@ class _OwnerBookingsScreenState extends State<OwnerBookingsScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Nút "Tin nhắn" của chủ studio (kèm số tin chưa đọc) -> danh sách hội thoại với khách.
+class _ChatButton extends StatelessWidget {
+  const _ChatButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final unread = context.watch<ChatProvider>().unreadTotal;
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: IconButton(
+        tooltip: unread > 0 ? 'Tin nhắn, $unread chưa đọc' : 'Tin nhắn',
+        onPressed: () async {
+          final chat = context.read<ChatProvider>();
+          await Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const ConversationsScreen()),
+          );
+          chat.fetchUnreadCount();
+        },
+        icon: Badge(
+          isLabelVisible: unread > 0,
+          label: Text(unread > 99 ? '99+' : '$unread'),
+          child: const Icon(Icons.chat_bubble_outline_rounded),
         ),
       ),
     );

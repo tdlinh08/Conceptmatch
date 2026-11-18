@@ -7,6 +7,8 @@ import '../../models/studio_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/notifications_provider.dart';
 import '../notifications/notifications_screen.dart';
+import '../../providers/chat_provider.dart';
+import '../chat/conversations_screen.dart';
 import '../../providers/studios_provider.dart';
 import '../studios/all_studios_screen.dart';
 import '../studios/studio_detail_screen.dart';
@@ -72,6 +74,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _openAiSearch() {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VisualSearchScreen()));
+  }
+
+  Future<void> _openChats() async {
+    final chat = context.read<ChatProvider>();
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ConversationsScreen()),
+    );
+    chat.fetchUnreadCount();
   }
 
   Future<void> _openNotifications() async {
@@ -177,6 +187,13 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(width: 12),
+          _CircleIconButton(
+            icon: Icons.chat_bubble_outline_rounded,
+            tooltip: 'Tin nhắn',
+            badge: context.watch<ChatProvider>().unreadTotal,
+            onPressed: _openChats,
+          ),
+          const SizedBox(width: 8),
           _CircleIconButton(
             icon: Icons.notifications_none_rounded,
             tooltip: 'Thông báo',

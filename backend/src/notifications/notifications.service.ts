@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 
 /** Giờ hiển thị trong nội dung thông báo: "09:30 11/11" (giờ máy chủ = giờ VN). */
 export function shortTime(d: Date): string {
@@ -11,10 +12,14 @@ export function shortTime(d: Date): string {
 /**
  * Thông báo trong app (chuông ở Home). Ghi vào bảng notifications khi có sự kiện
  * đơn đặt / đánh giá / duyệt studio; app đọc danh sách + số chưa đọc.
+ * Đồng thời đẩy sự kiện socket "notification_created" để app đang mở cập nhật ngay.
  */
 @Injectable()
 export class NotificationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private realtime: RealtimeService,
+  ) {}
 
   /**
    * Ghi 1 thông báo. KHÔNG ném lỗi: gửi thông báo hỏng không được làm hỏng
@@ -28,7 +33,7 @@ export class NotificationsService {
     refId?: string;
   }): Promise<void> {
     try {
-      await this.prisma.notification.create({
+      const n = await this.prisma.notification.create({
         data: {
           recipient_id: data.recipientId,
           type: data.type,
@@ -36,7 +41,17 @@ export class NotificationsService {
           body: data.body,
           ref_id: data.refId,
         },
+        select: {
+          id: true,
+          type: true,
+          title: true,
+          body: true,
+          ref_id: true,
+          is_read: true,
+          created_at: true,
+        },
       });
+      this.realtime.emitToUsers([data.recipientId], 'notification_created', n);
     } catch {
       // bỏ qua có chủ đích
     }

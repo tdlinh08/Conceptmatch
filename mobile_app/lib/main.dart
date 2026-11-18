@@ -12,13 +12,14 @@ import 'providers/notifications_provider.dart';
 import 'providers/owner_studios_provider.dart';
 import 'providers/owner_bookings_provider.dart';
 import 'providers/admin_provider.dart';
+import 'providers/chat_provider.dart';
 
 void main() {
-  runApp(const ConceptMatchApp());
+  runApp(const HanoiPhotoboothApp());
 }
 
-class ConceptMatchApp extends StatelessWidget {
-  const ConceptMatchApp({super.key});
+class HanoiPhotoboothApp extends StatelessWidget {
+  const HanoiPhotoboothApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -32,9 +33,10 @@ class ConceptMatchApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => OwnerStudiosProvider()),
         ChangeNotifierProvider(create: (_) => OwnerBookingsProvider()),
         ChangeNotifierProvider(create: (_) => AdminProvider()),
+        ChangeNotifierProvider(create: (_) => ChatProvider()),
       ],
       child: MaterialApp(
-        title: 'ConceptMatch',
+        title: 'Hanoi Photobooth',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         builder: (context, child) {

@@ -1,0 +1,47 @@
+// Admin đợt 2: chi tiết người dùng, đơn toàn sàn, hạn duyệt 24h
+import { execSync } from 'node:child_process';
+const API = process.env.API_URL ?? 'http://localhost:3000/api/v1';
+const sql = (q) => execSync(`psql "${process.env.TEST_DATABASE_URL}" -qtAc "${q}"`).toString().trim();
+let pass = 0, fail = 0;
+const ok = (c, n, x = '') => { if (c) { pass++; console.log('KẾT QUẢ ✔', n); } else { fail++; console.log('  ✘', n, x); } };
+const call = async (m, p, t, b) => { const r = await fetch(API + p, { method: m, headers: { ...(t && { Authorization: `Bearer ${t}` }), ...(b && { 'Content-Type': 'application/json' }) }, body: b ? JSON.stringify(b) : undefined }); let d = null; try { d = await r.json(); } catch {} return { status: r.status, data: d }; };
+const login = async (e, p) => (await call('POST', '/auth/login', null, { email: e, password: p })).data;
+await call('POST', '/auth/register', null, { full_name: 'Chủ AD2', email: 'own17@t.test', password: '12345678', role: 'studio_owner' });
+await call('POST', '/auth/register', null, { full_name: 'Khách Lan', email: 'lan17@t.test', password: '12345678' });
+const owner = (await login('own17@t.test', '12345678')).access_token;
+const kl = await login('lan17@t.test', '12345678'); const khach = kl.access_token; const kid = kl.user.id;
+const admin = (await login('admin@t.test', 'Admin@123')).access_token;
+const sid = (await call('POST', '/studios', owner, { name: 'Studio AD2', address: '1', district: 'Ba Đình', phone: '0900000777' })).data.id;
+const setId = (await call('POST', `/studios/${sid}/sets`, owner, { name: 'Set AD2', capacity: 4, avatar_url: '/uploads/sets/a.jpg' })).data.id;
+const pkg = (await call('POST', `/studios/${sid}/sets/${setId}/packages`, owner, { name: 'G', duration_minutes: 60, price: 250000, included_people: 2, max_people: 4 })).data.id;
+const late = (await call('POST', '/studios', owner, { name: 'Studio Chờ Lâu', address: '1', district: 'Ba Đình', phone: '0900000778' })).data.id;
+sql(`UPDATE studios SET updated_at = now() - interval '30 hour' WHERE id='${late}'`);
+let r = await call('GET', '/admin/studios?status=pending&keyword=ad2', admin);
+ok(r.data.data[0].overdue === false && r.data.data[0].waiting_since, 'hồ sơ mới gửi: chưa quá hạn');
+r = await call('GET', '/admin/studios?status=pending&keyword=cho%20lau', admin);
+ok(r.data.data[0]?.overdue === true, 'hồ sơ chờ > 24h: quá hạn', JSON.stringify(r.data.data[0]));
+ok((await call('GET', '/admin/dashboard', admin)).data.pending_overdue >= 1, 'tổng quan đếm hồ sơ quá hạn');
+await call('PATCH', `/admin/studios/${sid}/approve`, admin);
+const b1 = (await call('POST', '/bookings', khach, { package_id: pkg, start_time: '2026-12-20T09:00:00', num_people: 2 })).data.id;
+const b2 = (await call('POST', '/bookings', khach, { package_id: pkg, start_time: '2026-12-21T09:00:00', num_people: 3 })).data.id;
+for (const st of ['confirmed', 'checked_in', 'completed']) await call('PATCH', `/bookings/${b1}/status`, owner, { status: st });
+await call('POST', '/reviews', khach, { booking_id: b1, stars: 4, comment: 'Đẹp' });
+await call('PATCH', `/admin/users/${kid}/lock`, admin, { reason: 'Thử' });
+await call('PATCH', `/admin/users/${kid}/unlock`, admin);
+
+r = await call('GET', `/admin/users/${kid}`, admin);
+ok(r.status === 200 && r.data.booking_counts.completed === 1 && r.data.booking_counts.pending === 1 && r.data.total_spent === 250000, 'chi tiết khách: số đơn theo trạng thái, đã chi', JSON.stringify(r.data?.booking_counts));
+ok(r.data.recent_bookings.length === 2 && r.data.recent_bookings[0].studio_name === 'Studio AD2' && r.data.reviews[0].stars === 4, 'đơn gần đây + đánh giá đã viết');
+ok(r.data.history.length === 2 && r.data.history[0].action === 'Mở khóa người dùng' && !('password_hash' in r.data), 'lịch sử khoá/mở khoá; không lộ mật khẩu');
+r = await call('GET', `/admin/users/${(await login('own17@t.test', '12345678')).user.id}`, admin);
+ok(r.data.studios.length === 2 && r.data.studios.some((s) => s.status === 'active'), 'chi tiết chủ studio: studio sở hữu');
+ok((await call('GET', '/admin/users/00000000-0000-0000-0000-000000000000', admin)).status === 404, 'tài khoản không tồn tại -> 404');
+
+r = await call('GET', `/admin/bookings?studio_id=${sid}`, admin);
+ok(r.status === 200 && r.data.total === 2 && r.data.data[0].id === b2 && r.data.data[0].user.full_name === 'Khách Lan' && r.data.data[0].set_name === 'Set AD2', 'đơn toàn sàn: lọc studio, ngày chụp mới nhất lên đầu', JSON.stringify(r.data?.data?.[0]));
+ok(r.data.total_amount === 500000 && typeof r.data.data[0].total_amount === 'number', 'tổng tiền đơn khớp bộ lọc');
+ok((await call('GET', '/admin/bookings?status=completed&keyword=lan17', admin)).data.total === 1, 'lọc trạng thái + email khách');
+ok((await call('GET', '/admin/bookings?from=2026-12-21&to=2026-12-21&keyword=ad2', admin)).data.total === 1, 'lọc theo ngày chụp');
+ok((await call('GET', '/admin/bookings?from=21-12-2026', admin)).status === 400, 'ngày sai định dạng -> 400');
+ok((await call('GET', '/admin/bookings', owner)).status === 403, 'chủ studio -> 403');
+console.log(`\nKẾT QUẢ: ${pass} đạt, ${fail} lỗi`);

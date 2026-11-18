@@ -1,4 +1,4 @@
-# ConceptMatch – AI Service
+# Hanoi Photobooth – AI Service
 
 Dịch vụ tìm bối cảnh bằng hình ảnh: **CLIP ViT-B/32** (mã hoá ảnh thành vector 512 chiều, chuẩn hoá L2)
 + **FAISS IndexFlatIP** (tìm theo tích vô hướng = cosine). Vector lưu bền trong PostgreSQL (pgvector):

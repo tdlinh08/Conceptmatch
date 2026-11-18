@@ -17,6 +17,9 @@ import 'set_detail_screen.dart';
 import '../report/report_sheet.dart';
 import '../../core/utils/maps_launcher.dart';
 import '../map/studio_mini_map.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/chat_provider.dart';
+import '../chat/chat_screen.dart';
 
 class StudioDetailScreen extends StatefulWidget {
   final String studioId;
@@ -583,10 +586,31 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
     );
   }
 
-  // ---- 3. Thanh dưới cố định: giá từ + nút Chọn lịch ----
+  bool _openingChat = false;
+
+  /// Nút "Nhắn tin": mở (hoặc tạo) cuộc trò chuyện với studio này.
+  Future<void> _openChat(StudioDetailModel detail) async {
+    if (_openingChat) return;
+    setState(() => _openingChat = true);
+    try {
+      final conversation = await context.read<ChatProvider>().openWithStudio(detail.id);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ChatScreen(conversation: conversation)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _openingChat = false);
+    }
+  }
+
+  // ---- 3. Thanh dưới cố định: giá từ + nút Nhắn tin + nút Chọn lịch ----
   Widget _buildBottomBar(StudioDetailModel detail) {
     final cheapest = detail.cheapestPackage;
     final canBook = detail.sets.any((s) => s.isBookable);
+    final isCustomer = context.watch<AuthProvider>().currentUser?.role == 'user';
 
     return Container(
       decoration: BoxDecoration(
@@ -635,6 +659,20 @@ class _StudioDetailScreenState extends State<StudioDetailScreen> {
                       ),
               ),
               const SizedBox(width: 12),
+              if (isCustomer) ...[
+                IconButton.outlined(
+                  tooltip: 'Nhắn tin với studio',
+                  onPressed: _openingChat ? null : () => _openChat(detail),
+                  icon: _openingChat
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.chat_bubble_outline_rounded),
+                ),
+                const SizedBox(width: 8),
+              ],
               FilledButton(
                 onPressed: canBook ? () => _onChooseSchedule() : null,
                 child: const Row(

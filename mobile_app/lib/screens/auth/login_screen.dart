@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/theme/app_theme.dart';
+import 'forgot_password_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -42,6 +43,18 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // Mở màn Quên mật khẩu; đặt lại thành công thì điền sẵn email, xoá ô mật khẩu cũ
+  Future<void> _openForgotPassword() async {
+    final email = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(initialEmail: _emailController.text.trim()),
+      ),
+    );
+    if (!mounted || email == null) return;
+    _emailController.text = email;
+    _passwordController.clear();
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
@@ -68,7 +81,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 16),
                     const Text(
-                      'ConceptMatch',
+                      'Hanoi Photobooth',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 30,
@@ -131,7 +144,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         return null;
                       },
                     ),
-                    const SizedBox(height: 24),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: authProvider.isLoading ? null : _openForgotPassword,
+                        child: const Text('Quên mật khẩu?'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     FilledButton(
                       onPressed: authProvider.isLoading ? null : _submit,
                       child: authProvider.isLoading

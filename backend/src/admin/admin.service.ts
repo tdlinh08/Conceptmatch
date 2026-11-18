@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { QueryUsersDto } from './dto/query-users.dto';
 import { RejectStudioDto } from './dto/reject-studio.dto';
 import { LockUserDto } from './dto/lock-user.dto';
@@ -44,6 +45,7 @@ export class AdminService {
     private prisma: PrismaService,
     private aiService: AiService,
     private studiosService: StudiosService,
+    private notifications: NotificationsService,
   ) {}
 
   /** Danh sách studio mọi trạng thái (trang admin): lọc trạng thái + từ khoá. */
@@ -142,14 +144,12 @@ export class AdminService {
         note: dto.reason,
       },
     });
-    await this.prisma.notification.create({
-      data: {
-        recipient_id: studio.owner_id,
-        type: 'studio_rejected',
-        title: 'Studio đã bị gỡ khỏi sàn',
-        body: `${dto.reason} — sửa lại thông tin để gửi duyệt lại.`,
-        ref_id: studioId,
-      },
+    await this.notifications.notify({
+      recipientId: studio.owner_id,
+      type: 'studio_rejected',
+      title: 'Studio đã bị gỡ khỏi sàn',
+      body: `${dto.reason} — sửa lại thông tin để gửi duyệt lại.`,
+      refId: studioId,
     });
     // Bỏ các set của studio này khỏi chỉ mục tìm kiếm bằng ảnh
     const aiWarning = await this.aiService.reindex();
@@ -441,14 +441,12 @@ export class AdminService {
       },
     });
 
-    await this.prisma.notification.create({
-      data: {
-        recipient_id: studio.owner_id,
-        type: 'studio_approved',
-        title: 'Studio đã được phê duyệt',
-        body: `Studio "${studio.name}" đã được phê duyệt và hiển thị trên sàn.`,
-        ref_id: studioId,
-      },
+    await this.notifications.notify({
+      recipientId: studio.owner_id,
+      type: 'studio_approved',
+      title: 'Studio đã được phê duyệt',
+      body: `Studio "${studio.name}" đã được phê duyệt và hiển thị trên sàn.`,
+      refId: studioId,
     });
 
     // Sau khi duyệt: tự động mã hoá ảnh của từng Studio Set thành CLIP embedding
@@ -487,14 +485,12 @@ export class AdminService {
       },
     });
 
-    await this.prisma.notification.create({
-      data: {
-        recipient_id: studio.owner_id,
-        type: 'studio_rejected',
-        title: 'Studio bị từ chối',
-        body: dto.reason,
-        ref_id: studioId,
-      },
+    await this.notifications.notify({
+      recipientId: studio.owner_id,
+      type: 'studio_rejected',
+      title: 'Studio bị từ chối',
+      body: dto.reason,
+      refId: studioId,
     });
 
     return { id: updated.id, status: updated.status };

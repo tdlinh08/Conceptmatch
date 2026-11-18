@@ -1,0 +1,53 @@
+// 15c: danh sách đơn theo tab, ràng buộc thời gian khi đổi trạng thái
+import { execSync } from 'node:child_process';
+const API = process.env.API_URL ?? 'http://localhost:3000/api/v1';
+const sql = (q) => execSync(`psql "${process.env.TEST_DATABASE_URL}" -qtAc "${q}"`).toString().trim();
+let pass = 0, fail = 0;
+const ok = (c, n, x = '') => { if (c) { pass++; console.log('  ✔', n); } else { fail++; console.log('  ✘', n, x); } };
+const call = async (m, p, t, b) => { const r = await fetch(API + p, { method: m, headers: { ...(t && { Authorization: `Bearer ${t}` }), ...(b && { 'Content-Type': 'application/json' }) }, body: b ? JSON.stringify(b) : undefined }); let d = null; try { d = await r.json(); } catch {} return { status: r.status, data: d }; };
+const login = async (e, p) => (await call('POST', '/auth/login', null, { email: e, password: p })).data.access_token;
+await call('POST', '/auth/register', null, { full_name: 'Chủ D', email: 'own10@t.test', password: '12345678', role: 'studio_owner' });
+await call('POST', '/auth/register', null, { full_name: 'Khách D', email: 'kh10@t.test', password: '12345678' });
+const owner = await login('own10@t.test', '12345678'), khach = await login('kh10@t.test', '12345678'), admin = await login('admin@t.test', 'Admin@123');
+const sid = (await call('POST', '/studios', owner, { name: 'Studio Đơn', address: '1', district: 'Ba Đình', phone: '0900000333' })).data.id;
+const setId = (await call('POST', `/studios/${sid}/sets`, owner, { name: 'Set 1', capacity: 4, avatar_url: '/uploads/sets/a.jpg' })).data.id;
+const pkg = (await call('POST', `/studios/${sid}/sets/${setId}/packages`, owner, { name: 'G1', duration_minutes: 60, price: 250000, included_people: 2, max_people: 4 })).data.id;
+await call('PATCH', `/admin/studios/${sid}/approve`, admin);
+const D = '2026-12-10';
+const book = async (h) => (await call('POST', '/bookings', khach, { package_id: pkg, start_time: `${D}T${h}:00:00`, num_people: 2 })).data.id;
+const b1 = await book('09'), b2 = await book('11'), b3 = await book('13'), b4 = await book('15');
+await call('PATCH', `/bookings/${b2}/status`, owner, { status: 'confirmed' });
+await call('PATCH', `/bookings/${b3}/status`, owner, { status: 'rejected', cancel_reason: 'Bảo trì' });
+const ids = async (q) => (await call('GET', `/bookings/studio?studio_id=${sid}&${q}`, owner)).data;
+
+console.log('1. Lọc theo tab');
+let r = await ids('group=pending');
+ok(r.total === 2 && r.data.every((x) => x.status === 'pending'), 'group=pending -> 2 đơn chờ', JSON.stringify(r.data?.map((x) => x.status)));
+ok(new Date(r.data[0].start_time) < new Date(r.data[1].start_time), 'đơn chờ: giờ chụp gần nhất lên đầu');
+ok(typeof r.data[0].total_amount === 'number' && r.data[0].total_amount === 250000, 'total_amount là số (không phải chuỗi)', JSON.stringify(r.data[0].total_amount));
+r = await ids('group=upcoming');
+ok(r.total === 1 && r.data[0].id === b2, 'group=upcoming -> đơn đã xác nhận');
+r = await ids('group=past');
+ok(r.total === 1 && r.data[0].status === 'rejected', 'group=past -> đơn bị từ chối');
+r = await call('GET', '/bookings/studio?group=abc', owner);
+ok(r.status === 400, 'group sai -> 400');
+ok((await ids('group=pending&status=confirmed')).total === 1, 'có status thì status được ưu tiên');
+
+console.log('2. Ràng buộc thời gian');
+r = await call('PATCH', `/bookings/${b2}/status`, owner, { status: 'no_show' });
+ok(r.status === 400 && /Chưa tới giờ hẹn/.test(r.data.message), 'chưa tới giờ -> không đánh dấu khách không đến', JSON.stringify(r.data));
+sql(`UPDATE bookings SET start_time = now() - interval '2 hour', end_time = now() - interval '1 hour' WHERE id IN ('${b1}','${b2}')`);
+r = await call('PATCH', `/bookings/${b1}/status`, owner, { status: 'confirmed' });
+ok(r.status === 400 && /quá giờ bắt đầu/.test(r.data.message), 'đơn chờ đã quá giờ -> không xác nhận được', JSON.stringify(r.data));
+r = await call('PATCH', `/bookings/${b1}/status`, owner, { status: 'rejected', cancel_reason: 'Quá hạn xác nhận' });
+ok(r.status === 200, 'đơn chờ quá giờ -> vẫn từ chối được');
+r = await call('PATCH', `/bookings/${b2}/status`, owner, { status: 'no_show' });
+ok(r.status === 200 && r.data.status === 'no_show', 'đã qua giờ -> đánh dấu khách không đến');
+r = await call('PATCH', `/bookings/${b2}/status`, owner, { status: 'completed' });
+ok(r.status === 400 && /Khách không đến.*Hoàn thành/.test(r.data.message), 'lỗi chuyển trạng thái bằng tiếng Việt', JSON.stringify(r.data));
+r = await call('PATCH', `/bookings/${b4}/status`, owner, { status: 'rejected' });
+ok(r.status === 400 && /lý do/.test(r.data.message), 'từ chối thiếu lý do -> 400');
+r = await call('GET', `/bookings/${b4}`, owner);
+ok(r.status === 200 && r.data.customer.full_name === 'Khách D' && !('owner_id' in r.data.studio), 'chủ studio xem chi tiết đơn: có khách, không lộ owner_id');
+
+console.log(`\nKẾT QUẢ: ${pass} đạt, ${fail} lỗi`);

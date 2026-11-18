@@ -31,7 +31,7 @@ model User {
   audit_logs    AuditLog[]
   view_histories ViewHistory[]
   favorites     Favorite[]
-
+  password_resets PasswordReset[]
 
   reports_sent    Report[] @relation("ReportsSent")
   reports_handled Report[] @relation("ReportsHandled")
@@ -467,4 +467,21 @@ model Report {
   @@index([status])
   @@index([target_type, target_id])
   @@map("reports")
+}
+
+// Mã OTP 6 số để đặt lại mật khẩu (chức năng "Quên mật khẩu").
+// Chỉ lưu bản băm của mã; mỗi lần yêu cầu mã mới thì các mã cũ chưa dùng bị vô hiệu.
+model PasswordReset {
+  id         String    @id @default(uuid())
+  user_id    String
+  code_hash  String    @db.VarChar(255)
+  expires_at DateTime
+  attempts   Int       @default(0) // số lần nhập sai; tới 5 thì mã bị huỷ
+  used_at    DateTime?
+  created_at DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at])
+  @@map("password_resets")
 }

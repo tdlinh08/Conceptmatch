@@ -201,7 +201,7 @@ class _AdminShellState extends State<AdminShell> {
                     Image.asset('assets/images/logo.png', width: 32, height: 32),
                     const SizedBox(width: 10),
                     const Text(
-                      'Quản trị ConceptMatch',
+                      'Quản trị Hanoi Photobooth',
                       style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textTitle),
                     ),
                   ],

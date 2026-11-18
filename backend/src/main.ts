@@ -32,7 +32,7 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000;
   await app.listen(port, '0.0.0.0');
   console.log(
-    `ConceptMatch backend đang chạy tại http://localhost:${port}/api/v1`,
+    `Hanoi Photobooth backend đang chạy tại http://localhost:${port}/api/v1`,
   );
 }
 bootstrap();

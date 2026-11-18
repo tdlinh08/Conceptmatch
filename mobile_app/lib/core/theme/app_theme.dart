@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Bảng màu ConceptMatch — BẢN SÁNG (chốt 25/10/2026).
+/// Bảng màu Hanoi Photobooth — BẢN SÁNG (chốt 25/10/2026).
 ///
 /// Tỉ lệ tương phản ghi trong comment là đo theo WCAG trên nền [background].
 /// Chuẩn tối thiểu cho chữ thường là 4.5 : 1.

@@ -467,7 +467,7 @@ class _StatusSection extends StatelessWidget {
       'pending' => 'Studio đang xem yêu cầu của bạn. Bạn vẫn có thể huỷ khi lịch chưa được xác nhận.',
       'confirmed' => 'Lịch đã được giữ. Hãy đến đúng giờ và mang theo mã đơn.',
       'checked_in' => 'Bạn đã đến studio. Chúc buổi chụp vui vẻ!',
-      _ => 'Buổi chụp đã hoàn thành. Cảm ơn bạn đã sử dụng ConceptMatch.',
+      _ => 'Buổi chụp đã hoàn thành. Cảm ơn bạn đã sử dụng Hanoi Photobooth.',
               };
 
     return Container(

@@ -1,4 +1,4 @@
-import { Logger, UnauthorizedException } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
@@ -6,11 +6,14 @@ import {
   MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { ConversationsService } from './conversations.service';
 
 interface AuthenticatedSocket extends Socket {
@@ -21,13 +24,21 @@ interface AuthenticatedSocket extends Socket {
 }
 
 /**
- * Khớp với API Contract: "ws://localhost:3000 — kết nối kèm ?token=<access_token>".
- * Không set namespace/path riêng -> mặc định lắng nghe ngay tại gốc, đúng
- * địa chỉ ws://localhost:3000 (KHÔNG có prefix /api/v1 — setGlobalPrefix của
- * NestJS chỉ áp dụng cho route HTTP thường, không áp dụng cho WebSocket Gateway).
+ * Cổng Socket.IO dùng chung cho chat và thông báo real-time.
+ * Địa chỉ: ws://<máy chủ>:3000 (KHÔNG có prefix /api/v1 — setGlobalPrefix chỉ áp dụng
+ * cho route HTTP). Kết nối kèm access token: `auth: { token }` hoặc `?token=<access_token>`.
+ *
+ * Sự kiện server -> client (đều gửi tới phòng `user:<id>`):
+ * - message_received        tin nhắn mới (cả người gửi lẫn người nhận đều nhận)
+ * - messages_read           phía bên kia đã đọc tin trong 1 hội thoại
+ * - notification_created    có thông báo mới (đơn đặt, đánh giá, duyệt studio…)
+ * - booking_status_changed  trạng thái đơn đặt thay đổi
+ * Sự kiện client -> server: send_message, join_conversation (giữ cho tương thích).
  */
 @WebSocketGateway({ cors: { origin: '*' } })
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ChatGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer() server: Server;
 
   private readonly logger = new Logger(ChatGateway.name);
@@ -35,61 +46,70 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private jwt: JwtService,
     private config: ConfigService,
+    private prisma: PrismaService,
+    private realtime: RealtimeService,
     private conversationsService: ConversationsService,
   ) {}
 
+  afterInit(server: Server) {
+    this.realtime.attach(server);
+  }
+
   async handleConnection(client: AuthenticatedSocket) {
     try {
-      const token = client.handshake.query.token as string | undefined;
-      if (!token) {
-        throw new UnauthorizedException('Thiếu token');
-      }
+      const auth = client.handshake.auth as { token?: unknown } | undefined;
+      const token =
+        (typeof auth?.token === 'string' ? auth.token : undefined) ??
+        (client.handshake.query.token as string | undefined);
+      if (!token) throw new Error('Thiếu token');
 
       const payload = await this.jwt.verifyAsync<{ sub: string; role: string }>(
         token,
         { secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET') },
       );
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { status: true },
+      });
+      if (!user || user.status === 'locked')
+        throw new Error('Tài khoản không hợp lệ');
 
       client.data.userId = payload.sub;
       client.data.role = payload.role;
-
-      // Mỗi user tự động join 1 "room" riêng theo user_id — dùng để đẩy thông
-      // báo booking_status_changed đích danh tới đúng người, không cần biết
-      // trước socket.id (vì 1 user có thể mở nhiều tab/thiết bị cùng lúc).
+      // Mỗi người dùng có 1 phòng riêng -> gửi tới mọi thiết bị đang mở của người đó.
       await client.join(`user:${payload.sub}`);
       this.logger.log(`Client connected: user ${payload.sub}`);
     } catch {
-      client.emit('error', { message: 'Token không hợp lệ, kết nối bị từ chối' });
+      client.emit('auth_error', {
+        message: 'Token không hợp lệ, kết nối bị từ chối',
+      });
       client.disconnect(true);
     }
   }
 
   handleDisconnect(client: AuthenticatedSocket) {
-    this.logger.log(`Client disconnected: user ${client.data?.userId ?? 'unknown'}`);
+    this.logger.log(
+      `Client disconnected: user ${client.data?.userId ?? 'unknown'}`,
+    );
   }
 
-  /**
-   * Bổ sung so với API Contract gốc (chỉ định nghĩa send_message/
-   * message_received) — cần thêm event này để client báo cho server biết
-   * "đang mở đúng cuộc trò chuyện nào", nhờ đó server chỉ đẩy tin nhắn realtime
-   * cho đúng 2 người trong room `conversation:{id}`, tránh gửi lan sang các
-   * cuộc trò chuyện không liên quan.
-   */
   @SubscribeMessage('join_conversation')
   async handleJoinConversation(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { conversation_id: string },
   ) {
-    const participantIds = await this.conversationsService.getParticipantUserIds(
-      data.conversation_id,
-    );
+    const participantIds =
+      await this.conversationsService.getParticipantUserIds(
+        data?.conversation_id,
+      );
     if (!participantIds.includes(client.data.userId)) {
-      client.emit('error', { message: 'Bạn không thuộc cuộc trò chuyện này' });
-      return;
+      return { ok: false, message: 'Bạn không thuộc cuộc trò chuyện này' };
     }
     await client.join(`conversation:${data.conversation_id}`);
+    return { ok: true };
   }
 
+  /** Gửi tin qua socket. Kết quả trả về qua ack; tin mới được phát bởi ConversationsService. */
   @SubscribeMessage('send_message')
   async handleSendMessage(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -97,33 +117,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       const message = await this.conversationsService.sendMessage(
-        data.conversation_id,
+        data?.conversation_id,
         client.data.userId,
-        data.content,
+        data?.content,
       );
-
-      this.server
-        .to(`conversation:${data.conversation_id}`)
-        .emit('message_received', message);
-
-      return message;
+      return { ok: true, message };
     } catch (err) {
-      client.emit('error', {
+      return {
+        ok: false,
         message: err instanceof Error ? err.message : 'Gửi tin nhắn thất bại',
-      });
+      };
     }
   }
 
   /**
-   * KHÔNG phải WebSocket event nhận từ client — đây là method thường, được
-   * BookingsService gọi trực tiếp (qua dependency injection) mỗi khi trạng
-   * thái booking thay đổi, để đẩy sự kiện "booking_status_changed" real-time
-   * đúng theo API Contract.
+   * Không phải sự kiện nhận từ client — BookingsService gọi trực tiếp mỗi khi trạng
+   * thái đơn đặt thay đổi.
    */
   emitBookingStatusChanged(
     recipientUserId: string,
     payload: { booking_id: string; status: string; studio_name: string },
   ) {
-    this.server.to(`user:${recipientUserId}`).emit('booking_status_changed', payload);
+    this.realtime.emitToUsers(
+      [recipientUserId],
+      'booking_status_changed',
+      payload,
+    );
   }
 }

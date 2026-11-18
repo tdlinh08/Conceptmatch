@@ -1,0 +1,8 @@
+node_modules
+dist
+uploads
+.env
+*.env
+hs_err_pid*.log
+loi_build.txt
+coverage

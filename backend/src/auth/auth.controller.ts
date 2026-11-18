@@ -11,6 +11,8 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
@@ -46,6 +48,27 @@ export class AuthController {
     return this.authService.refreshTokens(dto.refresh_token);
   }
 
+  // Quên mật khẩu bước 1: gửi mã 6 số qua email. Luôn trả cùng một câu trả lời
+  // dù email có tồn tại hay không (không để lộ email nào đã đăng ký).
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  // Quên mật khẩu bước 2: nhập mã + mật khẩu mới.
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(
+      dto.email,
+      dto.code,
+      dto.new_password,
+    );
+  }
+
   // Không đánh dấu @Public() -> bắt buộc phải có access token hợp lệ
   // mới biết logout tài khoản nào (JwtAuthGuard global sẽ tự chặn).
   @HttpCode(HttpStatus.OK)
@@ -63,4 +86,3 @@ export class AuthController {
     return user;
   }
 }
-

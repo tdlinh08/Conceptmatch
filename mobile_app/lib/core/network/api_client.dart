@@ -32,7 +32,14 @@ class ApiClient {
   Future<String?>? _refreshing;
 
   /// Các API không được tự refresh khi 401 (sai mật khẩu cũng trả 401).
-  static const _noRefreshPaths = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/google'];
+  static const _noRefreshPaths = [
+    '/auth/login',
+    '/auth/register',
+    '/auth/refresh',
+    '/auth/google',
+    '/auth/forgot-password',
+    '/auth/reset-password',
+  ];
 
   ApiClient._internal() {
     final options = BaseOptions(
@@ -81,6 +88,9 @@ class ApiClient {
       ),
     );
   }
+
+  /// Dùng cho kết nối socket: access token hết hạn thì xin token mới (true = thành công).
+  Future<bool> refreshSession() async => (await _refreshAccessToken()) != null;
 
   /// Trả về access token mới, hoặc null nếu không làm mới được (khi đó đã xoá
   /// token và gọi [onSessionExpired]).

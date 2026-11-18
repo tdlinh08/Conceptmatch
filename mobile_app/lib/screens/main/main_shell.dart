@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import '../ai/visual_search_screen.dart';
 import 'package:provider/provider.dart';
+import '../../core/network/realtime_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/bookings_provider.dart';
 import '../../providers/favorites_provider.dart';
@@ -28,6 +30,23 @@ class _MainShellState extends State<MainShell> {
     MyBookingsScreen(),
     ProfileScreen(),
   ];
+
+  StreamSubscription<Map<String, dynamic>>? _bookingSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Studio xác nhận / từ chối đơn -> danh sách Lịch hẹn tự cập nhật.
+    _bookingSub = RealtimeClient().bookingChanged.listen((_) {
+      if (mounted) context.read<BookingsProvider>().fetchMyBookings();
+    });
+  }
+
+  @override
+  void dispose() {
+    _bookingSub?.cancel();
+    super.dispose();
+  }
 
   /// IndexedStack giữ nguyên các tab (không dựng lại) -> chủ động tải lại dữ liệu
   /// khi người dùng chuyển sang, để thấy ngay trạng thái mới (vd studio vừa xác nhận đơn).
